@@ -1,0 +1,123 @@
+import logging
+import traceback
+
+from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import AlreadyExistException, UnauthorizedException
+from app.core.security.jwt import JwtManager, hash_password, hash_token, verify_password
+from app.core.security.schema import JwtPayload, TokenType
+from app.domain.auth import UserBase, UserWithoutPassword
+from app.domain.session import SessionBase
+from app.dto.auth import LoginUserDto, RegisterUserDto, UserSession
+from app.dto.session import CreateSessionDto
+from app.services.base import BaseService
+from app.services.session import SessionService
+
+logger = logging.getLogger("uvicorn")
+logger.setLevel(logging.INFO)
+
+
+class AuthService(BaseService):
+    def __init__(self, session: AsyncSession):
+        super().__init__(session)
+        self._user = UserBase
+        self._user_without_pw = UserWithoutPassword
+        self._session = SessionBase
+        self._session_service = SessionService(session=session)
+
+    def _get_model(self) -> type[UserBase]:
+        """Return the model class this service works with."""
+        return self._user
+
+    async def register(self, data: RegisterUserDto) -> UserWithoutPassword:
+        try:
+            # verify if exists, will throw if not by default
+            found_user = await self._user.get_one(
+                self.session, data.email, field=self._user.model.email, raise_not_found=False
+            )
+
+            if found_user:
+                raise AlreadyExistException
+
+            hashed_password = hash_password(data.password)
+            create_user = UserBase(
+                full_name=data.full_name,
+                email=data.email,
+                hashed_password=hashed_password,
+            )
+
+            result = await self._user.create(self.session, create_user)
+
+            return self._user_without_pw.model_validate(result)
+        except Exception as e:
+            logger.info(f"[AuthService-register]: {e}")
+            raise e
+
+    async def login(self, data: LoginUserDto) -> UserSession:
+        try:
+            found_user: UserBase = await self._user.get_one(self.session, data.email, field=self._user.model.email)
+
+            is_match = verify_password(data.password, found_user.hashed_password)
+
+            if not is_match:
+                raise UnauthorizedException()
+
+            access_token = JwtManager.create_token(subject=found_user.email, token_type=TokenType.AccessToken)
+            refresh_token = JwtManager.create_token(subject=found_user.email, token_type=TokenType.RefreshToken)
+
+            user_session = await self._session_service.create_session(
+                CreateSessionDto(
+                    refresh_token=refresh_token,
+                    access_token=access_token,
+                    expires_at=JwtManager.get_expiry(TokenType.RefreshToken),
+                    user_id=found_user.id,
+                )
+            )
+            return UserSession(access_token=access_token, refresh_token=refresh_token, session_id=user_session.id)
+        except Exception as e:
+            logger.error(f"[AuthService-login]: {e}")
+            raise e
+
+    async def refresh_session(self, rt_encoding: str) -> UserSession:
+        try:
+            credentials_exception = HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            rt_token = JwtManager.validate_rt_cookie(rt_encoding)
+            jwt_payload: JwtPayload = JwtManager.verify_token(rt_token)
+
+            if jwt_payload.type != TokenType.RefreshToken:
+                raise credentials_exception
+
+            email = jwt_payload.sub
+            found_user = await self._user.get_one(self.session, email, field=self._user.model.email)
+
+            user_session = await self._session.get_one(
+                self.session, hash_token(rt_token), field=self._session.model.refresh_token_hash, return_as_base=True
+            )
+            logger.info(f"User Session: {user_session}")
+            if not user_session.is_active:
+                raise credentials_exception
+
+            new_access_token = JwtManager.create_token(subject=email, token_type=TokenType.AccessToken)
+            new_refresh_token = JwtManager.create_token(subject=email, token_type=TokenType.RefreshToken)
+
+            user_session.is_active = False
+            new_session = await self._session_service.create_session(
+                CreateSessionDto(
+                    refresh_token=new_refresh_token,
+                    access_token=new_access_token,
+                    expires_at=JwtManager.get_expiry(TokenType.RefreshToken),
+                    user_id=found_user.id,
+                )
+            )
+            return UserSession(
+                access_token=new_access_token, refresh_token=new_refresh_token, session_id=new_session.id
+            )
+        except Exception as e:
+            logger.error(f"[AuthService-refresh]: {e}")
+            traceback.print_exc()
+            raise e

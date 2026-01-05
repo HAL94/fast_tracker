@@ -1,0 +1,49 @@
+services:
+  pytest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uv", "run", "pytest"]
+    env_file:
+      ./tests/.env.pytest
+    depends_on:
+      - db_test
+      - migrator_test
+    networks:
+      - test_network
+
+  db_test:
+    container_name: todo_app_db_test
+    image: postgres:17.4-alpine3.21
+    restart: "no"
+    environment:
+      POSTGRES_DB: test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_PORT: 5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $PG_USER -d $PG_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test_network
+
+
+  migrator_test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+    env_file:
+      ./tests/.env.pytest
+    depends_on:
+      db_test:
+        condition: service_healthy
+    networks:
+      - test_network
+
+
+networks:
+  test_network:
+    driver: bridge
