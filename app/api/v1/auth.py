@@ -8,7 +8,7 @@ from app.core.schema import AppResponse
 from app.core.security.jwt import JwtManager
 from app.dependencies.auth import CurrentUser, RtCookie
 from app.dependencies.db_session import DbSession
-from app.domain.auth import UserWithoutPassword
+from app.domain.user import UserWithoutPassword
 from app.dto.auth import LoginUserDto, RegisterUserDto, UserSession
 from app.services.auth import AuthService
 from app.services.session import SessionService

@@ -53,6 +53,23 @@ services:
     networks:
       - fast_network
 
+  seeder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The command to execute the Alembic migration script
+    command: ["uv", "run", "-m", "app.seed.data"]
+
+    # This service should not restart after it has successfully completed its job
+    restart: "no"
+    env_file:
+      - ./.env
+    depends_on:
+      - migration
+      - backend
+    networks:
+      - fast_network
+
   redis:
     image: redis:latest
     ports:

@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AlreadyExistException, UnauthorizedException
 from app.core.security.jwt import JwtManager, hash_password, hash_token, verify_password
 from app.core.security.schema import JwtPayload, TokenType
-from app.domain.auth import UserBase, UserWithoutPassword
 from app.domain.session import SessionBase
+from app.domain.user import UserBase, UserWithoutPassword
 from app.dto.auth import LoginUserDto, RegisterUserDto, UserSession
 from app.dto.session import CreateSessionDto
 from app.services.base import BaseService

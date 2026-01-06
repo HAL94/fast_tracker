@@ -5,13 +5,14 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyCookie, OAuth2PasswordBearer
 
+from app.constants.roles import UserRole
 from app.core.config import settings
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, UnauthorizedException
 from app.core.security.jwt import JwtManager, hash_token
 from app.core.security.schema import JwtPayload, TokenType
 from app.dependencies.db_session import DbSession
-from app.domain.auth import UserBase, UserWithoutPassword
 from app.domain.session import SessionBase
+from app.domain.user import UserBase, UserWithoutPassword
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -70,3 +71,12 @@ async def get_current_active_user(
 
 
 CurrentUser = Annotated[UserWithoutPassword, Depends(get_current_active_user)]
+
+
+class ValidateRole:
+    def __init__(self, role: UserRole):
+        self.role = role
+
+    def __call__(self, user: CurrentUser):
+        if user.role != self.role:
+            raise UnauthorizedException

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from sqlalchemy import VARCHAR, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import VARCHAR, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,7 +23,11 @@ class User(Base):
 
     # Relations
     sessions: Mapped[List["Session"]] = relationship(back_populates="user", cascade="all, delete")
-    tasks: Mapped[List["Todo"]] = relationship(back_populates="owner", cascade="all, delete")
+
+    activity_user_rel: Mapped[List["ActivityUser"]] = relationship(back_populates="user")
+    activity_items: Mapped[List["Activity"]] = relationship(
+        secondary="activity_users", viewonly=True, back_populates="users"
+    )
 
     @property
     def user_role(self) -> UserRole:
@@ -52,26 +56,71 @@ class Session(Base):
     user: Mapped["User"] = relationship(back_populates="sessions")
 
 
-class Todo(Base):
-    __tablename__ = "todos"
+class ActivityType(Base):
+    __tablename__ = "activity_types"
+
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(VARCHAR(255), nullable=False, unique=True)
 
-    title: Mapped[str] = mapped_column(VARCHAR(255), nullable=False)
-    # Relationships
-    subtasks: Mapped[list["Subtask"]] = relationship(back_populates="task", cascade="all, delete")
+    activities: Mapped[List["Activity"]] = relationship(back_populates="activity_type")
 
-    user_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="cascade"), nullable=False
+
+class Activity(Base):
+    __tablename__ = "activities"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(nullable=False)
+    code: Mapped[str] = mapped_column(unique=True)
+
+    expected_hours: Mapped[int] = mapped_column(nullable=False)
+
+    # Relations
+    activity_type_id: Mapped[UUID] = mapped_column(ForeignKey("activity_types.id", ondelete="SET NULL"), nullable=False)
+    activity_type: Mapped[ActivityType] = relationship(back_populates="activities")
+
+    activity_user_rel: Mapped[List["ActivityUser"]] = relationship(back_populates="activity")
+    users: Mapped[List["User"]] = relationship(
+        secondary="activity_users", viewonly=True, back_populates="activity_items"
     )
-    owner: Mapped[User] = relationship(back_populates="tasks")
+
+    activity_tasks: Mapped[List["ActivityTask"]] = relationship(back_populates="activity", cascade="all, delete-orphan")
 
 
-class Subtask(Base):
-    __tablename__ = "subtasks"
+class ActivityTask(Base):
+    __tablename__ = "activity_tasks"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    priority: Mapped[int] = mapped_column(nullable=False)
-    title: Mapped[str] = mapped_column(nullable=True)
-    # Relationships
-    todo_id: Mapped[UUID] = mapped_column(ForeignKey("todos.id"))
-    task: Mapped[Todo] = relationship(back_populates="subtasks")
+    title: Mapped[str] = mapped_column(unique=True, nullable=False)
+
+    # Relations
+    activity_id: Mapped[UUID] = mapped_column(ForeignKey("activities.id", ondelete="CASCADE"), nullable=False)
+    activity: Mapped[Activity] = relationship(back_populates="activity_tasks")
+
+    worklogs: Mapped[List["Worklog"]] = relationship(back_populates="activity_task")
+
+
+class Worklog(Base):
+    __tablename__ = "worklogs"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    duration: Mapped[float] = mapped_column(Float(precision=4), nullable=False)
+
+    # Relations
+    activity_task_id: Mapped[UUID] = mapped_column(ForeignKey("activity_tasks.id", ondelete="SET NULL"), nullable=False)
+    activity_task: Mapped[ActivityTask] = relationship(back_populates="worklogs")
+
+
+class ActivityUser(Base):
+    __tablename__ = "activity_users"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+
+    # Relations
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    user: Mapped[User] = relationship(back_populates="activity_user_rel")
+
+    activity_id: Mapped[UUID] = mapped_column(ForeignKey("activities.id", ondelete="SET NULL"))
+    activity: Mapped[Activity] = relationship(back_populates="activity_user_rel")
+
+    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_user_activity"),)

@@ -261,7 +261,7 @@ wheels = [
 ]
 
 [[package]]
-name = "fast-seeder"
+name = "fast-tracker"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
