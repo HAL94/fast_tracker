@@ -2,7 +2,19 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import uuid4
 
-from sqlalchemy import VARCHAR, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    VARCHAR,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,10 +36,26 @@ class User(Base):
     # Relations
     sessions: Mapped[List["Session"]] = relationship(back_populates="user", cascade="all, delete")
 
-    activity_user_rel: Mapped[List["ActivityUser"]] = relationship(back_populates="user")
-    activity_items: Mapped[List["Activity"]] = relationship(
-        secondary="activity_users", viewonly=True, back_populates="users"
+    # Activities assigned TO this user
+    activity_user_rel: Mapped[List["ActivityUser"]] = relationship(
+        back_populates="user", foreign_keys="[ActivityUser.user_id]"
     )
+    activity_items: Mapped[List["Activity"]] = relationship(
+        secondary="activity_users",
+        viewonly=True,
+        back_populates="users",
+        foreign_keys="[ActivityUser.user_id, ActivityUser.activity_id]",
+        # primaryjoin="User.id == ActivityUser.user_id",
+        # secondaryjoin="Activity.id == ActivityUser.activity_id",
+    )
+
+    # Activities assigned BY this user
+    assignments_given: Mapped[List["ActivityUser"]] = relationship(
+        back_populates="assigned_by", foreign_keys="[ActivityUser.assigned_by_id]"
+    )
+
+    tasks: Mapped[List["ActivityTask"]] = relationship(back_populates="user")
+    worklogs: Mapped[List["Worklog"]] = relationship(back_populates="user")
 
     @property
     def user_role(self) -> UserRole:
@@ -72,7 +100,7 @@ class Activity(Base):
     title: Mapped[str] = mapped_column(nullable=False)
     code: Mapped[str] = mapped_column(unique=True)
 
-    expected_hours: Mapped[int] = mapped_column(nullable=False)
+    expected_hours_monthly: Mapped[int] = mapped_column(nullable=False)
 
     # Relations
     activity_type_id: Mapped[UUID] = mapped_column(ForeignKey("activity_types.id", ondelete="SET NULL"), nullable=False)
@@ -80,35 +108,49 @@ class Activity(Base):
 
     activity_user_rel: Mapped[List["ActivityUser"]] = relationship(back_populates="activity")
     users: Mapped[List["User"]] = relationship(
-        secondary="activity_users", viewonly=True, back_populates="activity_items"
+        secondary="activity_users",
+        viewonly=True,
+        back_populates="activity_items",
+        foreign_keys="[ActivityUser.user_id, ActivityUser.activity_id]",
     )
 
-    activity_tasks: Mapped[List["ActivityTask"]] = relationship(back_populates="activity", cascade="all, delete-orphan")
+    tasks: Mapped[List["ActivityTask"]] = relationship(back_populates="activity", cascade="all, delete-orphan")
 
 
 class ActivityTask(Base):
     __tablename__ = "activity_tasks"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    title: Mapped[str] = mapped_column(unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(nullable=False)
 
     # Relations
     activity_id: Mapped[UUID] = mapped_column(ForeignKey("activities.id", ondelete="CASCADE"), nullable=False)
-    activity: Mapped[Activity] = relationship(back_populates="activity_tasks")
+    activity: Mapped[Activity] = relationship(back_populates="tasks")
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    user: Mapped[User] = relationship(back_populates="tasks")
 
     worklogs: Mapped[List["Worklog"]] = relationship(back_populates="activity_task")
+
+    __table_args__ = (UniqueConstraint("activity_id", "user_id", name="uq_activity_id_user_id"),)
 
 
 class Worklog(Base):
     __tablename__ = "worklogs"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    duration: Mapped[float] = mapped_column(Float(precision=4), nullable=False)
+    date: Mapped[Date] = mapped_column(Date(), nullable=False)
+    duration: Mapped[Float] = mapped_column(Numeric(precision=3, scale=1), nullable=False)
 
     # Relations
     activity_task_id: Mapped[UUID] = mapped_column(ForeignKey("activity_tasks.id", ondelete="SET NULL"), nullable=False)
     activity_task: Mapped[ActivityTask] = relationship(back_populates="worklogs")
+
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    user: Mapped[User] = relationship(back_populates="worklogs")
+
+    __table_args__ = (CheckConstraint("duration >= 1 AND duration <= 8"),
+                      UniqueConstraint("activity_task_id", "user_id", "date", name="uq_user_activity_task_date"))
 
 
 class ActivityUser(Base):
@@ -118,9 +160,14 @@ class ActivityUser(Base):
 
     # Relations
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    user: Mapped[User] = relationship(back_populates="activity_user_rel")
+    user: Mapped[User] = relationship(back_populates="activity_user_rel", foreign_keys=[user_id])
 
     activity_id: Mapped[UUID] = mapped_column(ForeignKey("activities.id", ondelete="SET NULL"))
     activity: Mapped[Activity] = relationship(back_populates="activity_user_rel")
 
+    assigned_by_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Define the relationship
+    assigned_by: Mapped["User"] = relationship(
+        foreign_keys=[assigned_by_id]  # Specify this FK to avoid ambiguity
+    )
     __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_user_activity"),)

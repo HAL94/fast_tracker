@@ -1,0 +1,90 @@
+Table Sessions [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	refresh_token_hash varchar(255)
+	access_token_hash varchar(255)
+	is_active boolean
+	expires_at timestamptz
+	last_used_at timestamptz
+	device_name varchar(255)
+	device_type varchar(255)
+	ip_address varchar(255)
+	user_agent varchar(255)
+	user_id uuid
+
+	indexes {
+		(refresh_token_hash, access_token_hash) [ name: 'Sessions_index_0' ]
+	}
+
+	Note: 'A sessions table will be managing all user sessions.'
+}
+
+Table "Activity Types" [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	title varchar(255) [ unique ]
+}
+
+Table Activity [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	title varchar(255)
+	code varchar(255) [ unique ]
+	expected_hours smallint
+	activity_type_id uuid
+}
+
+Table "Activity Tasks" [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	title varchar(255) [ unique ]
+	activity_id uuid
+}
+
+Table ActivityUser [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	user_id uuid
+	activity_id uuid
+	assigned_by uuid
+
+	Note: 'A many-to-many table linking users and activities. The general idea is that many employees could be working on the same activity (E.g. project)'
+}
+
+Table Worklogs [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	date date
+	duration smallint
+	activity_id uuid
+	user_id uuid
+}
+
+Table Users [headercolor: #175e7a] {
+	id uuid [ pk, not null, unique ]
+	full_name varchar(255)
+	email varchar(255) [ unique ]
+	hashed_password varchar(255)
+	is_active boolean
+	role varchar(255)
+
+	Note: 'A table for managing all users in the system'
+}
+
+Ref fk_Users_id_Worklogs {
+	Users.id < Worklogs.user_id [ delete: no action, update: no action ]
+}
+
+Ref fk_Users_id_ActivityUser {
+	Users.id < ActivityUser.user_id [ delete: no action, update: no action ]
+}
+
+Ref fk_Sessions_user_id_Users {
+	Sessions.user_id > Users.id [ delete: no action, update: no action ]
+}
+
+Ref "fk_Activity Types_id_Activity" {
+	"Activity Types".id < Activity.activity_type_id [ delete: no action, update: no action ]
+}
+
+Ref "fk_Activity Tasks_activity_id_Activity" {
+	"Activity Tasks".activity_id > Activity.id [ delete: no action, update: no action ]
+}
+
+Ref fk_ActivityUser_activity_id_Activity {
+	ActivityUser.activity_id > Activity.id [ delete: no action, update: no action ]
+}

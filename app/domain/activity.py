@@ -1,3 +1,4 @@
+from datetime import date as Date
 from datetime import datetime
 from typing import ClassVar, List, Optional
 from uuid import UUID
@@ -26,7 +27,7 @@ class ActivityBase(BaseModelDatabaseMixin[Activity]):
     id: Optional[UUID] = Field(default=None)
     title: str
     code: str
-    expected_hours: int
+    expected_hours_monthly: int
     activity_type_id: UUID
 
 
@@ -49,6 +50,7 @@ class ActivityUserBase(BaseModelDatabaseMixin[ActivityUser]):
     activity_id: UUID
     created_at: Optional[datetime] = Field(default=None)
     updated_at: Optional[datetime] = Field(default=None)
+    assigned_by_id: Optional[UUID] = Field(default=None)
 
 
 class ActivityByUser(ActivityUserBase):
@@ -71,6 +73,7 @@ class ActivityTaskBase(BaseModelDatabaseMixin[ActivityTask]):
     id: Optional[UUID] = Field(default=None)
     title: str
     activity_id: UUID
+    user_id: UUID
 
 
 class ActivityTaskWorklogs(ActivityTaskBase):
@@ -81,6 +84,7 @@ class WorklogBase(BaseModelDatabaseMixin[Worklog]):
     model: ClassVar[Worklog] = Worklog
 
     id: Optional[UUID] = Field(default=None)
-    date: datetime
-    duration: float
+    date: Date
+    duration: Optional[float] = None
     activity_task_id: UUID
+    user_id: UUID

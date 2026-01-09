@@ -1,9 +1,10 @@
-from datetime import datetime
-from typing import Optional
+from datetime import date as Date
+from typing import List, Optional
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
+from app.core.exceptions import UnprocessableInputException
 from app.core.schema import BaseModel
 
 
@@ -15,7 +16,7 @@ class CreateUserActivityDto(BaseModel):
 class CreateActivityDto(BaseModel):
     title: str
     code: str
-    expected_hours: int
+    expected_hours_monthly: int
     activity_type_id: UUID
 
 
@@ -24,7 +25,21 @@ class CreateActivityTaskDto(BaseModel):
     activity_id: Optional[UUID] = None
 
 
-class CreateWorklogDto(BaseModel):
-    activity_task_id: Optional[UUID] = Field(default=None)
-    date: datetime = Field(default=datetime.now())
-    duration: int = Field(ge=1, le=8)
+class WorklogDto(BaseModel):
+    id: Optional[UUID] = Field(default=None)
+    date: Date
+    duration: Optional[float] = Field(default=None)
+    task_id: UUID
+
+    @model_validator(mode="after")
+    def validate_data(self):
+        if self.duration is None and self.id is None:
+            raise UnprocessableInputException(
+                message=f"422 Unprocessable entity, both 'duration' and 'id' fields are not provided, \
+                    in object: {str(self)}"
+            )
+        return self
+
+
+class WorklogBatchDto(BaseModel):
+    worklogs: List[WorklogDto] = []

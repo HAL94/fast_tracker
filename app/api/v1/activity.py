@@ -5,11 +5,23 @@ from fastapi import APIRouter, Depends
 
 from app.constants.roles import UserRole
 from app.core.schema import AppResponse
-from app.dependencies.activity import validate_activity, validate_task
+from app.dependencies.activity import validate_activity
 from app.dependencies.auth import CurrentUser, ValidateRole
 from app.dependencies.db_session import DbSession
-from app.domain.activity import ActivityBase, ActivityTaskBase, ActivityTypeBase, ActivityUserBase, ActivityWithType
-from app.dto.activity import CreateActivityDto, CreateActivityTaskDto, CreateUserActivityDto, CreateWorklogDto
+from app.domain.activity import (
+    ActivityBase,
+    ActivityTaskBase,
+    ActivityTypeBase,
+    ActivityUserBase,
+    ActivityWithType,
+    WorklogBase,
+)
+from app.dto.activity import (
+    CreateActivityDto,
+    CreateActivityTaskDto,
+    CreateUserActivityDto,
+    WorklogBatchDto,
+)
 from app.services.activity import ActivityService
 
 activity_router = APIRouter(prefix="/activity", tags=["Activities"])
@@ -26,7 +38,7 @@ async def get_all(session: DbSession) -> AppResponse[List[ActivityTypeBase]]:
 @activity_router.get(
     "/", dependencies=[Depends(ValidateRole(UserRole.ADMIN))], response_model=AppResponse[List[ActivityBase]]
 )
-async def get_all_activities(session: DbSession):
+async def get_all_activities(session: DbSession) -> AppResponse[List[ActivityBase]]:
     """Get all created activities. Admin Only"""
     activity_service = ActivityService(session)
     result = await activity_service.get_all_activities()
@@ -55,7 +67,7 @@ async def assign_user_activity_item(session: DbSession, data: CreateUserActivity
     return AppResponse(data=result)
 
 
-@activity_router.get("/by-user", response_model=AppResponse[List[ActivityWithType]])
+@activity_router.get("/employee", response_model=AppResponse[List[ActivityWithType]])
 async def get_user_activities(session: DbSession, user: CurrentUser) -> AppResponse[List[ActivityWithType]]:
     """Get all activities performed by the current employee"""
     activity_service = ActivityService(session)
@@ -64,25 +76,25 @@ async def get_user_activities(session: DbSession, user: CurrentUser) -> AppRespo
 
 
 @activity_router.get(
-    "/{activity_id}/task",
+    "/task",
     dependencies=[Depends(ValidateRole(UserRole.USER))],
     response_model=AppResponse[List[ActivityTaskBase]],
 )
-async def get_activity_tasks(
-    session: DbSession, user: CurrentUser, activity_id: UUID
-) -> AppResponse[List[ActivityTaskBase]]:
-    """Get all tasks for a given activity for the currently logged-in employee"""
-    await validate_activity(session, user, activity_id)
+async def get_activity_tasks(session: DbSession, user: CurrentUser) -> AppResponse[List[ActivityTaskBase]]:
+    """Get all tasks for the currently logged-in employee"""
     activity_service = ActivityService(session)
-    result = await activity_service.get_all_tasks(activity_id)
+    result = await activity_service.get_all_tasks(user.id)
     return AppResponse(data=result)
 
 
 @activity_router.post(
     "/{activity_id}/task",
     dependencies=[Depends(ValidateRole(UserRole.USER))],
+    response_model=AppResponse[ActivityTaskBase],
 )
-async def add_activity_task(session: DbSession, user: CurrentUser, data: CreateActivityTaskDto, activity_id: UUID):
+async def add_activity_task(
+    session: DbSession, user: CurrentUser, data: CreateActivityTaskDto, activity_id: UUID
+) -> AppResponse[ActivityTaskBase]:
     """Add a task to a given activity for the currently logged-in employee"""
     data.activity_id = activity_id
     await validate_activity(session, user, activity_id)
@@ -91,11 +103,13 @@ async def add_activity_task(session: DbSession, user: CurrentUser, data: CreateA
     return AppResponse(data=result)
 
 
-@activity_router.post("/{activity_id}/task/{task_id}/log", dependencies=[Depends(ValidateRole(UserRole.USER))])
-async def add_worklog(session: DbSession, user: CurrentUser, data: CreateWorklogDto, task_id: UUID, activity_id: UUID):
-    """Add a worklog to a task for an activity, core endpoint for employee tracking their hours"""
-    data.activity_task_id = task_id
-    await validate_task(session, user, activity_id, task_id)
+@activity_router.post(
+    "/worklog-batch",
+    dependencies=[Depends(ValidateRole(UserRole.USER))],
+    response_model=AppResponse[List[WorklogBase]],
+)
+async def worklog_batch(session: DbSession, user: CurrentUser, data: WorklogBatchDto) -> AppResponse[List[WorklogBase]]:
+    """Add/update/delete worklog batch for multiple activities, core endpoint for employee tracking their hours"""
     activity_service = ActivityService(session)
-    result = await activity_service.add_worklog(data)
-    return AppResponse(data=result)
+    worklogs = await activity_service.batch_worklog(data, user.id)
+    return AppResponse(data=worklogs)

@@ -21,11 +21,8 @@ async def login_user(
     response: Response,
     body: Annotated[OAuth2PasswordRequestForm, Depends()],
     session: DbSession,
-) -> UserSession:
-    """OAuth2 compatible token login.
-
-    Returns access token and refresh token.
-    """
+) -> AppResponse[UserSession]:
+    """OAuth2 compatible token login. Returns access token and refresh token."""
     try:
         auth_service = AuthService(session=session)
         login_body = LoginUserDto(email=body.username, password=body.password)
@@ -41,25 +38,26 @@ async def login_user(
         raise HTTPException(status_code=500, detail="Something went wrong") from e
 
 
-@auth_router.post("/register")
-async def register_user(
-    body: RegisterUserDto, session: DbSession
-) -> UserWithoutPassword:
+@auth_router.post("/register", response_model=AppResponse[UserWithoutPassword])
+async def register_user(body: RegisterUserDto, session: DbSession) -> AppResponse[UserWithoutPassword]:
     """Register a new user."""
     try:
         auth_service = AuthService(session=session)
-        return await auth_service.register(body)
+        result = await auth_service.register(body)
+        return AppResponse(data=result)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Something went wrong") from e
 
 
-@auth_router.get("/me")
-async def get_user(user: CurrentUser) -> UserWithoutPassword:
-    return user
+@auth_router.get("/me", response_model=AppResponse[UserWithoutPassword])
+async def get_user(user: CurrentUser) -> AppResponse[UserWithoutPassword]:
+    """Get the current user information"""
+    return AppResponse(data=user)
 
 
 @auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(rt_encoding: RtCookie, session: DbSession):
+    """Logout the user and remove the session"""
     try:
         session_service = SessionService(session=session)
         await session_service.logout_from_session(JwtManager.validate_rt_cookie(rt_encoding))
@@ -67,8 +65,9 @@ async def logout(rt_encoding: RtCookie, session: DbSession):
         raise HTTPException(status_code=500, detail="Something went wrong") from e
 
 
-@auth_router.post("/refresh")
-async def refresh_token(rt_encoding: RtCookie, response: Response, session: DbSession):
+@auth_router.post("/refresh", response_model=AppResponse[UserSession])
+async def refresh_token(rt_encoding: RtCookie, response: Response, session: DbSession) -> AppResponse[UserSession]:
+    """Refresh the session for the currently logged-in user"""
     try:
         if not rt_encoding:
             raise HTTPException(status_code=401, detail="Not authorized for refresh")
@@ -76,6 +75,6 @@ async def refresh_token(rt_encoding: RtCookie, response: Response, session: DbSe
         tokens = await auth_service.refresh_session(rt_encoding=rt_encoding)
         response.set_cookie(**JwtManager.rt_cookie_options(tokens.refresh_token))
         response.set_cookie(**JwtManager.at_cookie_options(tokens.access_token))
-        return tokens
+        return AppResponse(data=tokens)
     except Exception as e:
         raise e
