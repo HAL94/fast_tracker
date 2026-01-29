@@ -67,21 +67,18 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
         ActivityBase(
             id=uuid.UUID("fef3f3aa-1aba-46f7-b3cc-75ec10375218"),
             activity_type_id=project_activity.id,
-            expected_hours_monthly=168,
             title="Saudi Company for Artificial Intelligence",
             code="SCAI-AUG",
         ),
         ActivityBase(
             id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
             activity_type_id=project_activity.id,
-            expected_hours_monthly=168,
             title="Saudi Aramco",
             code="ARMC-HIS",
         ),
         ActivityBase(
             id=uuid.UUID("bf2678aa-a630-49aa-97f1-332221bf4449"),
             activity_type_id=project_activity.id,
-            expected_hours_monthly=168,
             title="Saudi Aramco",
             code="ARMC-HUG",
         ),
@@ -91,21 +88,18 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
         ActivityBase(
             id=uuid.UUID("40876b01-943f-487b-9c95-bc799e997025"),
             activity_type_id=non_project_activity.id,
-            expected_hours_monthly=0,
             title="OTH - Other",
             code="oth",
         ),
         ActivityBase(
             id=uuid.UUID("99c50518-0d15-4877-939e-5f8aa0dda520"),
             activity_type_id=non_project_activity.id,
-            expected_hours_monthly=0,
             title="Business Development",
             code="BUS-DEV",
         ),
         ActivityBase(
             id=uuid.UUID("837a9f19-e1cd-48f6-9496-3f22e4183eb9"),
             activity_type_id=non_project_activity.id,
-            expected_hours_monthly=0,
             title="Delivery and Program Management",
             code="DEL-PROG",
         ),
@@ -151,14 +145,13 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
         for employee in employees:
             data.append(
                 ActivityTaskBase(
-                    id=uuid.uuid4(),
                     title=f"Task for {activity.code} for employee {employee.full_name}",
                     user_id=employee.id,
                     activity_id=activity.id,
                 )
             )
 
-    index_elements = ["activity_id", "user_id"]
+    index_elements = ["title", "user_id"]
     async with session_manager.session() as session:
         await ActivityTaskBase.upsert_many(session, data, index_elements)
 

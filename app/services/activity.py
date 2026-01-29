@@ -14,6 +14,7 @@ from app.domain.activity import (
     ActivityWithType,
     WorklogBase,
 )
+from app.domain.user import UserWithActivities
 from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,
@@ -33,6 +34,7 @@ class ActivityService(BaseService):
         self._activity = ActivityBase
         self._activity_user = ActivityUserBase
         self._activity_by_user = ActivityByUser
+        self._user = UserWithActivities
         self._activity_task = ActivityTaskBase
         self._worklog = WorklogBase
 
@@ -56,9 +58,10 @@ class ActivityService(BaseService):
 
     async def get_activities_by_user(self, user_id: UUID) -> List[ActivityWithType]:
         """Get all activity items performed by an employee"""
-        model = self._activity_by_user.model
-        items = await self._activity_by_user.get_all(self.session, where_clause=[model.user_id == user_id])
-        activity_items = [item.activity for item in items]
+        model = self._user.model
+        user_found = await self._user.get_one(self.session, user_id, field=model.id)
+        activity_items = [item for item in user_found.activity_items]
+        print(f"Activity Items: {activity_items}")
         return activity_items
 
     async def get_all_tasks(self, user_id: UUID) -> List[ActivityTaskBase]:
@@ -66,9 +69,11 @@ class ActivityService(BaseService):
         model = self._activity_task.model
         return await self._activity_task.get_all(self.session, where_clause=[model.user_id == user_id])
 
-    async def add_activity_task(self, data: CreateActivityTaskDto) -> ActivityTaskBase:
+    async def add_activity_task(self, data: CreateActivityTaskDto, user_id: UUID) -> ActivityTaskBase:
         """An employee will add their own task for tracking for a specific activity"""
-        return await self._activity_task.create(self.session, data)
+        return await self._activity_task.create(
+            self.session, ActivityTaskBase(title=data.title, activity_id=data.activity_id, user_id=user_id)
+        )
 
     async def batch_worklog(self, data: WorklogBatchDto, user_id: UUID) -> List[WorklogBase]:
         """An employee will record their time (hours) spent on given tasks"""
@@ -76,7 +81,7 @@ class ActivityService(BaseService):
         to_delete: List[WorklogBase] = []
         to_upsert: List[WorklogBase] = []
 
-        created_logs: List[WorklogBase] = []
+        upserted_logs: List[WorklogBase] = []
 
         for item in data.worklogs:
             worklog = WorklogBase(
@@ -92,7 +97,7 @@ class ActivityService(BaseService):
             to_upsert,
             commit=False,
         )
-        created_logs.extend(upsert_result)
+        upserted_logs.extend(upsert_result)
 
         await self._worklog.delete_many(self.session, [Worklog.id.in_([item.id for item in to_delete])], commit=False)
 
@@ -113,4 +118,4 @@ class ActivityService(BaseService):
             raise HTTPException(status_code=400, detail=f"Daily limit exceeded: {details}")
 
         await self.session.commit()
-        return created_logs
+        return upsert_result

@@ -23,17 +23,21 @@ class JournalActivity(BaseModel):
     code: str
     expected_hours_monthly: int
     activity_type: JournalActivityType
+    tasks: Optional[List["JournalActivityTask"]] = Field(default=[])
+
 
 class JournalActivityWorklogs(BaseModel):
     id: Optional[UUID] = Field(default=None)
     date: Date
     duration: Optional[float] = None
 
+
 class JournalActivityTask(BaseModel):
     id: Optional[UUID] = Field(default=None)
     title: str
     activity_id: UUID
-    worklogs: List[JournalActivityWorklogs]
+    worklogs: Optional[List[JournalActivityWorklogs]] = Field(default=[])
+
 
 class UserJournalDto(BaseModel):
     project_assignments: List[JournalActivity]

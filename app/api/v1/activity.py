@@ -99,7 +99,7 @@ async def add_activity_task(
     data.activity_id = activity_id
     await validate_activity(session, user, activity_id)
     activity_service = ActivityService(session)
-    result = await activity_service.add_activity_task(data)
+    result = await activity_service.add_activity_task(data, user.id)
     return AppResponse(data=result)
 
 

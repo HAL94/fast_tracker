@@ -27,7 +27,6 @@ class ActivityBase(BaseModelDatabaseMixin[Activity]):
     id: Optional[UUID] = Field(default=None)
     title: str
     code: str
-    expected_hours_monthly: int
     activity_type_id: UUID
 
 
