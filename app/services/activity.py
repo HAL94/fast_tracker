@@ -1,10 +1,10 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import BadRequestException
 from app.domain.activity import (
     ActivityBase,
     ActivityByUser,
@@ -115,7 +115,7 @@ class ActivityService(BaseService):
 
         if errors:
             details = ", ".join([f"{r[0]} ({r[1]}h)" for r in errors])
-            raise HTTPException(status_code=400, detail=f"Daily limit exceeded: {details}")
+            raise BadRequestException(f"Daily limit exceeded: {details}")
 
         await self.session.commit()
         return upsert_result

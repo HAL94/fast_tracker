@@ -28,4 +28,4 @@ class JournalService(BaseService):
             )
         )
         result = (await self.session.scalars(stmt)).unique().all()
-        return [JournalActivity.model_validate(item, from_attributes=True) for item in result]
+        return [JournalActivity.from_activity_model(item) for item in result]

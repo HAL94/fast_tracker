@@ -16,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, WriteOnlyMapped, mapped_column, relationship
 
 from app.constants.roles import UserRole
 from app.core.database import Base
@@ -37,7 +37,7 @@ class User(Base):
     sessions: Mapped[List["Session"]] = relationship(back_populates="user", cascade="all, delete")
 
     # Activities assigned TO this user
-    user_activities: Mapped[List["ActivityUser"]] = relationship(
+    user_activities: WriteOnlyMapped["ActivityUser"] = relationship(
         back_populates="user", foreign_keys="[ActivityUser.user_id]"
     )
     activity_items: Mapped[List["Activity"]] = relationship(
@@ -104,7 +104,7 @@ class Activity(Base):
     activity_type_id: Mapped[UUID] = mapped_column(ForeignKey("activity_types.id", ondelete="SET NULL"), nullable=False)
     activity_type: Mapped[ActivityType] = relationship(back_populates="activities")
 
-    user_activities: Mapped[List["ActivityUser"]] = relationship(back_populates="activity")
+    user_activities: WriteOnlyMapped["ActivityUser"] = relationship(back_populates="activity")
     users: Mapped[List["User"]] = relationship(
         secondary="activity_users",
         viewonly=True,

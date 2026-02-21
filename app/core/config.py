@@ -17,7 +17,7 @@ class PostgresSettings(BaseSettings):
 
 class JwtSettings(BaseSettings):
     JWT_SECRET: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: float = 30.0
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     ALGORITHM: str = "HS256"
 

@@ -1,7 +1,8 @@
 from typing import Any
 
-from fastapi import HTTPException
 from itsdangerous import SignatureExpired, URLSafeTimedSerializer
+
+from app.core.exceptions import UnauthorizedException
 
 __secret_cookie_key__ = "a356258a081495d33581a3aeb850666083cf6009ae29021e7201f9199e6db750"
 
@@ -43,6 +44,6 @@ class CookieSigner:
             data = self.signer.loads(signed_data, max_age=max_age)
             return data
         except SignatureExpired:
-            raise HTTPException(status_code=401, detail="Cookie has expired")
+            raise UnauthorizedException("Cookie has expired")
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid cookie signature")
+            raise UnauthorizedException("Invalid cookie signature")

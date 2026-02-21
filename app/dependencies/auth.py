@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import APIKeyCookie, OAuth2PasswordBearer
 
 from app.constants.roles import UserRole
@@ -20,48 +20,44 @@ logger = logging.getLogger("uvicorn")
 logger.setLevel(logging.INFO)
 
 
-RtCookie = Annotated[str, Depends(APIKeyCookie(name=JwtManager.RT_COOKIE_KEY))]
-AtCookie = Annotated[str, Depends(APIKeyCookie(name=JwtManager.AT_COOKIE_KEY))]
+RtCookie = Annotated[str, Depends(APIKeyCookie(name=JwtManager.RT_COOKIE_KEY, auto_error=False))]
+AtCookie = Annotated[str, Depends(APIKeyCookie(name=JwtManager.AT_COOKIE_KEY, auto_error=False))]
 
 
 async def get_current_user(token_encoding: AtCookie, session: DbSession) -> UserWithoutPassword:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
     try:
+        logger.info("Checking user info")
         token = JwtManager.validate_at_cookie(token_encoding)
+        logger.info(f"JWT TOKEN: {token}")
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.ALGORITHM])
         validated_payload = JwtPayload.model_validate(payload)
 
         if not validated_payload:
-            raise credentials_exception
+            raise UnauthorizedException
         if validated_payload.type != TokenType.AccessToken:
-            raise credentials_exception
+            raise UnauthorizedException
 
         email = validated_payload.sub
         if not email:
-            raise credentials_exception
+            raise UnauthorizedException
 
         fetched_session = await SessionBase.get_one(
             session, hash_token(token), field=SessionBase.model.access_token_hash
         )
 
         if not fetched_session.is_active:
-            raise credentials_exception
+            raise UnauthorizedException
 
         user_data = await UserBase.get_one(session, email, field=UserBase.model.email)
         if not user_data.is_active:
-            raise credentials_exception
+            raise UnauthorizedException
 
         return UserWithoutPassword.model_validate(user_data)
     except jwt.InvalidTokenError as e:
         logger.info(f"[get_current_user] Error occured: {e}")
-        raise credentials_exception
+        raise UnauthorizedException
     except NotFoundException:
-        raise credentials_exception
+        raise UnauthorizedException
 
 
 async def get_current_active_user(
