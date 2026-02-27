@@ -46,6 +46,7 @@ class JournalActivityTask(BaseModel):
     id: Optional[UUID] = Field(default=None)
     title: str
     activity_id: UUID
+    user_id: UUID
     worklogs: Optional[List[JournalActivityWorklogs]] = Field(default=[])
 
 

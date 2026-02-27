@@ -19,7 +19,7 @@ from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,
     CreateUserActivityDto,
-    WorklogBatchDto,
+    TaskBatchDto,
 )
 from app.models import Worklog
 from app.services.base import BaseService
@@ -75,22 +75,29 @@ class ActivityService(BaseService):
             self.session, ActivityTaskBase(title=data.title, activity_id=data.activity_id, user_id=user_id)
         )
 
-    async def batch_worklog(self, data: WorklogBatchDto, user_id: UUID) -> List[WorklogBase]:
+    async def batch_worklog(self, data: TaskBatchDto, user_id: UUID) -> List[WorklogBase]:
         """An employee will record their time (hours) spent on given tasks"""
-        affected_dates = {item.date for item in data.worklogs}
         to_delete: List[WorklogBase] = []
-        to_upsert: List[WorklogBase] = []
-
         upserted_logs: List[WorklogBase] = []
+        to_upsert: List[WorklogBase] = []
+        for task in data.tasks:
+            affected_dates = {item.date for item in task.worklogs}
 
-        for item in data.worklogs:
-            worklog = WorklogBase(
-                id=item.id, date=item.date, duration=item.duration, activity_task_id=item.task_id, user_id=user_id
-            )
-            if worklog.id and (worklog.duration is None or worklog.duration == 0):
-                to_delete.append(worklog)
-            else:
-                to_upsert.append(worklog)
+            task_data = ActivityTaskBase(title=task.title, activity_id=task.activity_id, id=task.id, user_id=user_id)
+            current_task = await self._activity_task.upsert_one(self.session, task_data, commit=False)
+
+            for item in task.worklogs:
+                worklog = WorklogBase(
+                    id=item.id,
+                    date=item.date,
+                    duration=item.duration,
+                    activity_task_id=current_task.id,
+                    user_id=user_id,
+                )
+                if worklog.id and (worklog.duration is None or worklog.duration == 0):
+                    to_delete.append(worklog)
+                else:
+                    to_upsert.append(worklog)
 
         upsert_result = await self._worklog.upsert_many(
             self.session,
@@ -98,7 +105,6 @@ class ActivityService(BaseService):
             commit=False,
         )
         upserted_logs.extend(upsert_result)
-
         await self._worklog.delete_many(self.session, [Worklog.id.in_([item.id for item in to_delete])], commit=False)
 
         await self.session.flush()

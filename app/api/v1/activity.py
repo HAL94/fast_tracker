@@ -20,7 +20,7 @@ from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,
     CreateUserActivityDto,
-    WorklogBatchDto,
+    TaskBatchDto,
 )
 from app.services.activity import ActivityService
 
@@ -108,7 +108,7 @@ async def add_activity_task(
     dependencies=[Depends(ValidateRole(UserRole.USER))],
     response_model=AppResponse[List[WorklogBase]],
 )
-async def worklog_batch(session: DbSession, user: CurrentUser, data: WorklogBatchDto) -> AppResponse[List[WorklogBase]]:
+async def worklog_batch(session: DbSession, user: CurrentUser, data: TaskBatchDto) -> AppResponse[List[WorklogBase]]:
     """Add/update/delete worklog batch for multiple activities, core endpoint for employee tracking their hours"""
     activity_service = ActivityService(session)
     worklogs = await activity_service.batch_worklog(data, user.id)

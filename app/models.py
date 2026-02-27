@@ -128,9 +128,9 @@ class ActivityTask(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user: Mapped[User] = relationship(back_populates="tasks")
 
-    worklogs: Mapped[List["Worklog"]] = relationship(back_populates="activity_task")
+    worklogs: Mapped[List["Worklog"]] = relationship(back_populates="activity_task", cascade="all, delete-orphan")
 
-    __table_args__ = (UniqueConstraint("title", "user_id", name="uq_title_user_id"),)
+    __table_args__ = (UniqueConstraint("title", "activity_id", name="uq_title_activity_id"),)
 
 
 class Worklog(Base):
@@ -141,10 +141,10 @@ class Worklog(Base):
     duration: Mapped[Float] = mapped_column(Numeric(precision=3, scale=1), nullable=False)
 
     # Relations
-    activity_task_id: Mapped[UUID] = mapped_column(ForeignKey("activity_tasks.id", ondelete="SET NULL"), nullable=False)
+    activity_task_id: Mapped[UUID] = mapped_column(ForeignKey("activity_tasks.id", ondelete="SET NULL"))
     activity_task: Mapped[ActivityTask] = relationship(back_populates="worklogs")
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     user: Mapped[User] = relationship(back_populates="worklogs")
 
     __table_args__ = (CheckConstraint("duration >= 1 AND duration <= 8"),

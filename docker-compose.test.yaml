@@ -9,18 +9,18 @@ services:
     depends_on:
       - db_test
       - migrator_test
+      - seeder_test
     networks:
       - test_network
 
   db_test:
-    container_name: todo_app_db_test
     image: postgres:17.4-alpine3.21
     restart: "no"
     environment:
-      POSTGRES_DB: test
+      POSTGRES_DB: test_tracker
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_PORT: 5432
+      POSTGRES_PORT: 5434
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $PG_USER -d $PG_DB"]
       interval: 5s
@@ -40,6 +40,23 @@ services:
     depends_on:
       db_test:
         condition: service_healthy
+    networks:
+      - test_network
+  
+  seeder_test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The command to execute the Alembic migration script
+    command: ["uv", "run", "-m", "app.seed.data"]
+
+    # This service should not restart after it has successfully completed its job
+    restart: "no"
+    env_file:
+      - ./tests/.env.pytest
+    depends_on:
+      - migrator_test
+      - db_test
     networks:
       - test_network
 

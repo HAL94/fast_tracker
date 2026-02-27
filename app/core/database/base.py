@@ -170,6 +170,8 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
 
             session.add(obj)
 
+            await session.flush()
+
             if commit:
                 await session.commit()
 
@@ -443,16 +445,6 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
 
             data_dict = data.model_dump(exclude_none=True, by_alias=False)
 
-            data_keys = set(data_dict.keys())
-            index_keys = set(index_elements)
-            missing_keys = index_keys - data_keys
-
-            if missing_keys:
-                raise ValueError(f"Data must include all index elements. Missing: {missing_keys}")
-
-            if len(data_keys - index_keys) == 0:
-                raise ValueError("Index elements match all data fields, upsert is invalid.")
-
             stmt = pg_insert(cls).values(data_dict)
 
             if on_conflict == "do_update":
@@ -495,25 +487,7 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
             if not index_elements:
                 index_elements = [cls.id]
 
-            index_elements = [
-                col.name if isinstance(col, InstrumentedAttribute) else str(col) for col in index_elements
-            ]
             data_values = [item.model_dump(exclude_none=True, by_alias=False) for item in data]
-
-            data_model_fields = data[0].__class__.model_fields
-            data_keys = set(data_model_fields.keys())
-            index_keys = set(index_elements)
-
-            # if all keys in data match with index_elements, then the operation is invalid
-            # because there are no distinctions that could be used for the on conflict clause.
-            if len(data_keys - index_keys) == 0:
-                raise ValueError("Index elements match all model fields, upsert is invalid.")
-            #  if no key in index_elements exists in data, then the operation is invalid
-            missing_keys = index_keys - data_keys
-            if missing_keys:
-                raise ValueError(
-                    f"Data passed must include the indexed_elements to handle conflicts. Missing: {missing_keys}"
-                )
 
             stmt = pg_insert(cls).values(data_values)
 
