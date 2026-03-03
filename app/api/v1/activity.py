@@ -10,12 +10,12 @@ from app.dependencies.auth import CurrentUser, ValidateRole
 from app.dependencies.db_session import DbSession
 from app.domain.activity import (
     ActivityBase,
-    ActivityTaskBase,
     ActivityTypeBase,
     ActivityUserBase,
     ActivityWithType,
-    WorklogBase,
 )
+from app.domain.activity_task import ActivityTaskBase
+from app.domain.worklog import WorklogBase
 from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,

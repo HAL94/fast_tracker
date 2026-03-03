@@ -5,7 +5,9 @@ from typing import List, Optional
 from app.constants.roles import UserRole
 from app.core.database import session_manager
 from app.core.security.jwt import hash_password
-from app.domain.activity import ActivityBase, ActivityTaskBase, ActivityTypeBase, ActivityUserBase
+from app.domain.activity import ActivityBase, ActivityUserBase
+from app.domain.activity_task import ActivityTaskBase
+from app.domain.activity_type import ActivityTypeBase
 from app.domain.user import UserBase
 
 
@@ -145,15 +147,15 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
         for employee in employees:
             data.append(
                 ActivityTaskBase(
+                    id=uuid.uuid4(),
                     title=f"Task for {activity.code} for employee {employee.full_name}",
                     user_id=employee.id,
                     activity_id=activity.id,
                 )
             )
 
-    index_elements = ["title", "user_id"]
     async with session_manager.session() as session:
-        await ActivityTaskBase.upsert_many(session, data, index_elements)
+        await ActivityTaskBase.upsert_many(session, data)
 
 
 async def seed_data():

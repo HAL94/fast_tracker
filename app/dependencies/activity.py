@@ -3,7 +3,8 @@ from uuid import UUID
 from app.core.exceptions import AppException, NotFoundException, UnauthorizedException
 from app.dependencies.auth import CurrentUser
 from app.dependencies.db_session import DbSession
-from app.domain.activity import ActivityTaskBase, ActivityUserBase
+from app.domain.activity import ActivityUserBase
+from app.domain.activity_task import ActivityTaskBase
 
 
 async def validate_activity(session: DbSession, user: CurrentUser, activity_id: UUID) -> None:

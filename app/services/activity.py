@@ -7,14 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import BadRequestException
 from app.domain.activity import (
     ActivityBase,
-    ActivityByUser,
-    ActivityTaskBase,
     ActivityTypeBase,
     ActivityUserBase,
     ActivityWithType,
-    WorklogBase,
 )
+from app.domain.activity_task import ActivityTaskBase
 from app.domain.user import UserWithActivities
+from app.domain.worklog import WorklogBase
 from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,
@@ -33,7 +32,6 @@ class ActivityService(BaseService):
         self._activity_type = ActivityTypeBase
         self._activity = ActivityBase
         self._activity_user = ActivityUserBase
-        self._activity_by_user = ActivityByUser
         self._user = UserWithActivities
         self._activity_task = ActivityTaskBase
         self._worklog = WorklogBase
@@ -61,7 +59,6 @@ class ActivityService(BaseService):
         model = self._user.model
         user_found = await self._user.get_one(self.session, user_id, field=model.id)
         activity_items = [item for item in user_found.activity_items]
-        print(f"Activity Items: {activity_items}")
         return activity_items
 
     async def get_all_tasks(self, user_id: UUID) -> List[ActivityTaskBase]:

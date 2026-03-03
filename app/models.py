@@ -105,7 +105,7 @@ class Activity(Base):
     activity_type: Mapped[ActivityType] = relationship(back_populates="activities")
 
     user_activities: WriteOnlyMapped["ActivityUser"] = relationship(back_populates="activity")
-    users: Mapped[List["User"]] = relationship(
+    users: WriteOnlyMapped["User"] = relationship(
         secondary="activity_users",
         viewonly=True,
         back_populates="activity_items",

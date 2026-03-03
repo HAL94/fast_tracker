@@ -1,24 +1,16 @@
-from datetime import date as Date
 from datetime import datetime
-from typing import ClassVar, List, Optional
+from typing import ClassVar, Optional
 from uuid import UUID
 
 from pydantic import Field
-from sqlalchemy.orm import selectinload
+from sqlalchemy import and_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager, joinedload, with_loader_criteria
 
 from app.core.database.mixin import BaseModelDatabaseMixin
-from app.models import Activity, ActivityTask, ActivityType, ActivityUser, Worklog
-
-
-class ActivityTypeBase(BaseModelDatabaseMixin[ActivityType]):
-    model: ClassVar[ActivityType] = ActivityType
-
-    @classmethod
-    def relations(cls):
-        return [selectinload(cls.model.activities)]
-
-    id: Optional[UUID] = Field(default=None)
-    title: str
+from app.domain.activity_type import ActivityTypeBase
+from app.dto.journal import JournalActivity
+from app.models import Activity, ActivityTask, ActivityUser, Worklog
 
 
 class ActivityBase(BaseModelDatabaseMixin[Activity]):
@@ -28,6 +20,30 @@ class ActivityBase(BaseModelDatabaseMixin[Activity]):
     title: str
     code: str
     activity_type_id: UUID
+
+    @classmethod
+    async def get_journal(cls, session: AsyncSession, user_id: UUID, start_date: datetime, end_date: datetime):
+        try:
+            stmt = (
+                select(Activity)
+                .join(Activity.user_activities)
+                .join(Activity.tasks)
+                .where(and_(ActivityUser.user_id == user_id, ActivityTask.user_id == user_id))
+                .order_by(ActivityTask.created_at.desc())
+                .options(
+                    joinedload(Activity.activity_type),
+                    contains_eager(Activity.tasks).selectinload(ActivityTask.worklogs),
+                )
+                .options(
+                    with_loader_criteria(
+                        Worklog, and_(Worklog.date.between(start_date, end_date), Worklog.user_id == user_id)
+                    )
+                )
+            )
+            result = (await session.scalars(stmt)).unique().all()
+            return [JournalActivity.from_activity_model(item) for item in result]
+        except Exception as e:
+            raise e
 
 
 class ActivityWithType(ActivityBase):
@@ -50,40 +66,3 @@ class ActivityUserBase(BaseModelDatabaseMixin[ActivityUser]):
     created_at: Optional[datetime] = Field(default=None)
     updated_at: Optional[datetime] = Field(default=None)
     assigned_by_id: Optional[UUID] = Field(default=None)
-
-
-class ActivityByUser(ActivityUserBase):
-    @classmethod
-    def relations(cls):
-        return [selectinload(cls.model.activity).selectinload(ActivityBase.model.activity_type)]
-
-    user_id: UUID = Field(exclude=True)
-    id: Optional[UUID] = Field(exclude=True)
-    activity_id: UUID = Field(exclude=True)
-    created_at: Optional[datetime] = Field(exclude=True)
-    updated_at: Optional[datetime] = Field(exclude=True)
-
-    activity: ActivityWithType
-
-
-class ActivityTaskBase(BaseModelDatabaseMixin[ActivityTask]):
-    model: ClassVar[ActivityTask] = ActivityTask
-
-    id: Optional[UUID] = Field(default=None)
-    title: str
-    activity_id: UUID
-    user_id: UUID
-
-
-class ActivityTaskWorklogs(ActivityTaskBase):
-    worklogs: List["WorklogBase"]
-
-
-class WorklogBase(BaseModelDatabaseMixin[Worklog]):
-    model: ClassVar[Worklog] = Worklog
-
-    id: Optional[UUID] = Field(default=None)
-    date: Date
-    duration: Optional[float] = None
-    activity_task_id: UUID
-    user_id: UUID
