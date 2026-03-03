@@ -51,4 +51,5 @@ class WorklogDto(BaseModel):
 
 
 class TaskBatchDto(BaseModel):
-    tasks: List[UpsertActivityTask] = []
+    tasks: List[UpsertActivityTask] = Field(default=[])
+    deletions: Optional[List[UUID]] = Field(default=[])

@@ -141,14 +141,18 @@ class Worklog(Base):
     duration: Mapped[Float] = mapped_column(Numeric(precision=3, scale=1), nullable=False)
 
     # Relations
-    activity_task_id: Mapped[UUID] = mapped_column(ForeignKey("activity_tasks.id", ondelete="SET NULL"))
+    activity_task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("activity_tasks.id", ondelete="SET NULL"), nullable=True
+    )
     activity_task: Mapped[ActivityTask] = relationship(back_populates="worklogs")
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     user: Mapped[User] = relationship(back_populates="worklogs")
 
-    __table_args__ = (CheckConstraint("duration >= 1 AND duration <= 8"),
-                      UniqueConstraint("activity_task_id", "user_id", "date", name="uq_user_activity_task_date"))
+    __table_args__ = (
+        CheckConstraint("duration >= 1 AND duration <= 8"),
+        UniqueConstraint("activity_task_id", "user_id", "date", name="uq_user_activity_task_date"),
+    )
 
 
 class ActivityUser(Base):

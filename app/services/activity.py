@@ -77,6 +77,10 @@ class ActivityService(BaseService):
         to_delete: List[WorklogBase] = []
         upserted_logs: List[WorklogBase] = []
         to_upsert: List[WorklogBase] = []
+        task_deletions: List[UUID] = data.deletions
+        await self._activity_task.delete_many(
+            self.session, [ActivityTaskBase.model.id.in_(task_deletions)], commit=False
+        )
         for task in data.tasks:
             affected_dates = {item.date for item in task.worklogs}
 
