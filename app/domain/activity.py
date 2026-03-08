@@ -5,10 +5,11 @@ from uuid import UUID
 from pydantic import Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, joinedload, with_loader_criteria
+from sqlalchemy.orm import joinedload, selectinload, with_loader_criteria
 
 from app.core.database.mixin import BaseModelDatabaseMixin
 from app.domain.activity_type import ActivityTypeBase
+from app.domain.reporting_period import ReportingPeriodBase
 from app.dto.journal import JournalActivity
 from app.models import Activity, ActivityTask, ActivityUser, Worklog
 
@@ -22,25 +23,31 @@ class ActivityBase(BaseModelDatabaseMixin[Activity]):
     activity_type_id: UUID
 
     @classmethod
-    async def get_journal(cls, session: AsyncSession, user_id: UUID, start_date: datetime, end_date: datetime):
+    async def get_journal(cls, session: AsyncSession, user_id: UUID, period_id: UUID):
         try:
+            reporting_period = await ReportingPeriodBase.get_one(session, period_id)
             stmt = (
                 select(Activity)
                 .join(Activity.user_activities)
-                .join(Activity.tasks)
-                .where(and_(ActivityUser.user_id == user_id, ActivityTask.user_id == user_id))
-                .order_by(ActivityTask.created_at.desc())
+                .where(ActivityUser.user_id == user_id)
                 .options(
                     joinedload(Activity.activity_type),
-                    contains_eager(Activity.tasks).selectinload(ActivityTask.worklogs),
-                )
-                .options(
+                    selectinload(Activity.tasks).selectinload(ActivityTask.worklogs),
                     with_loader_criteria(
-                        Worklog, and_(Worklog.date.between(start_date, end_date), Worklog.user_id == user_id)
-                    )
+                        ActivityTask,
+                        and_(ActivityTask.user_id == user_id, ActivityTask.period_id == reporting_period.id),
+                    ),
+                    with_loader_criteria(
+                        Worklog,
+                        and_(
+                            Worklog.date.between(reporting_period.start_date, reporting_period.end_date),
+                            Worklog.user_id == user_id,
+                        ),
+                    ),
                 )
+                .order_by(Activity.created_at.desc())
             )
-            result = (await session.scalars(stmt)).unique().all()
+            result = (await session.scalars(stmt)).all()
             return [JournalActivity.from_activity_model(item) for item in result]
         except Exception as e:
             raise e

@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from datetime import datetime
 from typing import List, Optional
 
 from app.constants.roles import UserRole
@@ -8,6 +9,7 @@ from app.core.security.jwt import hash_password
 from app.domain.activity import ActivityBase, ActivityUserBase
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.activity_type import ActivityTypeBase
+from app.domain.reporting_period import ReportingPeriodBase
 from app.domain.user import UserBase
 
 
@@ -72,18 +74,18 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
             title="Saudi Company for Artificial Intelligence",
             code="SCAI-AUG",
         ),
-        ActivityBase(
-            id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
-            activity_type_id=project_activity.id,
-            title="Saudi Aramco",
-            code="ARMC-HIS",
-        ),
-        ActivityBase(
-            id=uuid.UUID("bf2678aa-a630-49aa-97f1-332221bf4449"),
-            activity_type_id=project_activity.id,
-            title="Saudi Aramco",
-            code="ARMC-HUG",
-        ),
+        # ActivityBase(
+        #     id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
+        #     activity_type_id=project_activity.id,
+        #     title="Saudi Aramco",
+        #     code="ARMC-HIS",
+        # ),
+        # ActivityBase(
+        #     id=uuid.UUID("bf2678aa-a630-49aa-97f1-332221bf4449"),
+        #     activity_type_id=project_activity.id,
+        #     title="Saudi Aramco",
+        #     code="ARMC-HUG",
+        # ),
     ]
 
     non_project_activities = [
@@ -107,12 +109,11 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
         ),
     ]
 
-    index_elements = ["id"]
     async with session_manager.session() as session:
-        created_projet_activities = await ActivityBase.upsert_many(session, project_activities, index_elements)
-        created_non_project_activities = await ActivityBase.upsert_many(session, non_project_activities, index_elements)
+        created_project_activities = await ActivityBase.upsert_many(session, project_activities)
+        created_non_project_activities = await ActivityBase.upsert_many(session, non_project_activities)
 
-    return created_projet_activities, created_non_project_activities
+    return created_project_activities, created_non_project_activities
 
 
 async def seed_emplyee_activities(
@@ -141,13 +142,31 @@ async def seed_emplyee_activities(
         return await ActivityUserBase.upsert_many(session, data, index_elements)
 
 
-async def seed_employee_tasks(activities: List[ActivityBase], employees: List[UserBase]):
+async def seed_reporting_periods():
+    periods: list[ReportingPeriodBase] = []
+
+    data = ReportingPeriodBase(
+        id=uuid.UUID("da440f1e-866a-40ba-9b41-96c76545aa43"),
+        start_date=datetime(2026, 3, 1),
+        end_date=datetime(2026, 3, 31),
+        is_blocked=False,
+    )
+    async with session_manager.session() as session:
+        result = await ReportingPeriodBase.upsert_one(session, data)
+        periods.append(result)
+
+    return periods
+
+
+async def seed_employee_tasks(activities: List[ActivityBase], employees: List[UserBase], period: ReportingPeriodBase):
     data = []
+
     for activity in activities:
         for employee in employees:
             data.append(
                 ActivityTaskBase(
                     id=uuid.uuid4(),
+                    period_id=period.id,
                     title=f"Task for {activity.code} for employee {employee.full_name}",
                     user_id=employee.id,
                     activity_id=activity.id,
@@ -174,7 +193,9 @@ async def seed_data():
     await seed_emplyee_activities(activities, employees, admin.id)
     print(f"Successfully assigned {len(activities)} activities for {len(employees)} employees")
 
-    await seed_employee_tasks(activities, employees)
+    periods = await seed_reporting_periods()
+
+    await seed_employee_tasks(activities, employees, periods[0])
     print("Successfully added tasks for all activities and employees")
 
 

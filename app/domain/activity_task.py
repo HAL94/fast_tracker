@@ -12,6 +12,7 @@ class ActivityTaskBase(BaseModelDatabaseMixin[ActivityTask]):
     model: ClassVar[ActivityTask] = ActivityTask
 
     id: Optional[UUID] = Field(default=None)
+    period_id: UUID
     title: str
     activity_id: UUID
     user_id: UUID

@@ -130,7 +130,21 @@ class ActivityTask(Base):
 
     worklogs: Mapped[List["Worklog"]] = relationship(back_populates="activity_task", cascade="all, delete-orphan")
 
-    __table_args__ = (UniqueConstraint("title", "activity_id", name="uq_title_activity_id"),)
+    period_id: Mapped[UUID] = mapped_column(ForeignKey("reporting_periods.id"))
+    period: Mapped["ReportingPeriod"] = relationship(back_populates="tasks")
+
+    __table_args__ = (UniqueConstraint("title", "activity_id", "period_id", name="uq_title_activity_id_period_id"),)
+
+
+class ReportingPeriod(Base):
+    __tablename__ = "reporting_periods"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    start_date: Mapped[Date] = mapped_column(Date(), nullable=False)
+    end_date: Mapped[Date] = mapped_column(Date(), nullable=False)
+    is_blocked: Mapped[bool] = mapped_column(default=False)
+
+    tasks: WriteOnlyMapped[ActivityTask] = relationship(back_populates="period")
 
 
 class Worklog(Base):

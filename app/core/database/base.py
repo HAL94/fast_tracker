@@ -306,7 +306,7 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
     async def get_one(
         cls,
         session: AsyncSession,
-        val: Any,
+        val: Any | None = None,
         /,
         *,
         field: InstrumentedAttribute | str | None = None,
@@ -315,10 +315,13 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
     ) -> Self:
         base_options = cls.get_options()
 
+        where_base = []
+
         if field is None:
             field = cls.id
 
-        where_base = [field == val]
+        if val is not None:
+            where_base = [field == val]
 
         if where_clause:
             where_base.extend(where_clause)

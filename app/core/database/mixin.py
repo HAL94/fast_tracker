@@ -171,7 +171,7 @@ class BaseModelDatabaseMixin[T](AppBaseModel, ABC):
     async def get_one(
         cls,
         session: AsyncSession,
-        val,
+        val: Any | None = None,
         /,
         *,
         field: InstrumentedAttribute | None = None,
