@@ -3,14 +3,10 @@ from typing import ClassVar, Optional
 from uuid import UUID
 
 from pydantic import Field
-from sqlalchemy import and_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, joinedload, with_loader_criteria
 
 from app.core.database.mixin import BaseModelDatabaseMixin
 from app.domain.activity_type import ActivityTypeBase
-from app.dto.journal import JournalActivity
-from app.models import Activity, ActivityTask, ActivityUser, Worklog
+from app.models import Activity, ActivityUser
 
 
 class ActivityBase(BaseModelDatabaseMixin[Activity]):
@@ -20,30 +16,6 @@ class ActivityBase(BaseModelDatabaseMixin[Activity]):
     title: str
     code: str
     activity_type_id: UUID
-
-    @classmethod
-    async def get_journal(cls, session: AsyncSession, user_id: UUID, start_date: datetime, end_date: datetime):
-        try:
-            stmt = (
-                select(Activity)
-                .join(Activity.user_activities)
-                .join(Activity.tasks)
-                .where(and_(ActivityUser.user_id == user_id, ActivityTask.user_id == user_id))
-                .order_by(ActivityTask.created_at.desc())
-                .options(
-                    joinedload(Activity.activity_type),
-                    contains_eager(Activity.tasks).selectinload(ActivityTask.worklogs),
-                )
-                .options(
-                    with_loader_criteria(
-                        Worklog, and_(Worklog.date.between(start_date, end_date), Worklog.user_id == user_id)
-                    )
-                )
-            )
-            result = (await session.scalars(stmt)).unique().all()
-            return [JournalActivity.from_activity_model(item) for item in result]
-        except Exception as e:
-            raise e
 
 
 class ActivityWithType(ActivityBase):

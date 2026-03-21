@@ -121,6 +121,9 @@ class ActivityTask(Base):
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     title: Mapped[str] = mapped_column(nullable=False)
 
+    month: Mapped[int] = mapped_column()
+    year: Mapped[int] = mapped_column()
+
     # Relations
     activity_id: Mapped[UUID] = mapped_column(ForeignKey("activities.id", ondelete="SET NULL"), nullable=True)
     activity: Mapped[Activity] = relationship(back_populates="tasks")
@@ -130,7 +133,9 @@ class ActivityTask(Base):
 
     worklogs: Mapped[List["Worklog"]] = relationship(back_populates="activity_task", cascade="all, delete-orphan")
 
-    __table_args__ = (UniqueConstraint("title", "activity_id", name="uq_title_activity_id"),)
+    __table_args__ = (
+        UniqueConstraint("title", "activity_id", "month", "year", name="uq_title_activity_id_month_year"),
+    )
 
 
 class Worklog(Base):
@@ -141,8 +146,8 @@ class Worklog(Base):
     duration: Mapped[Float] = mapped_column(Numeric(precision=3, scale=1), nullable=False)
 
     # Relations
-    activity_task_id: Mapped[Optional[UUID]] = mapped_column(
-        ForeignKey("activity_tasks.id", ondelete="SET NULL"), nullable=True
+    activity_task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("activity_tasks.id", ondelete="CASCADE")
     )
     activity_task: Mapped[ActivityTask] = relationship(back_populates="worklogs")
 

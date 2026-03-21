@@ -32,7 +32,7 @@ class BaseModelDatabaseMixin[T](AppBaseModel, ABC):
         /,
         *,
         field: Optional[str] = None,
-        raise_not_found: bool = False,
+        raise_not_found: bool = True,
         where_clause: list[ColumnElement[bool]] = None,
     ) -> bool:
         try:

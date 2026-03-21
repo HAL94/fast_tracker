@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.schema import AppResponse
 from app.core.security.jwt import JwtManager
 from app.dependencies.auth import CurrentUser, RtCookie
@@ -32,8 +32,8 @@ async def login_user(
         response.set_cookie(**JwtManager.at_cookie_options(tokens.access_token))
 
         return AppResponse(data=tokens)
-    except NotFoundException as e:
-        raise e
+    except NotFoundException:
+        raise BadRequestException("400 Bad Request")
     except Exception as e:
         raise HTTPException(status_code=500, detail="Something went wrong") from e
 

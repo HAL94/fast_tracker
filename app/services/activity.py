@@ -1,10 +1,8 @@
 from typing import List
 from uuid import UUID
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BadRequestException
 from app.domain.activity import (
     ActivityBase,
     ActivityTypeBase,
@@ -13,14 +11,11 @@ from app.domain.activity import (
 )
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.user import UserWithActivities
-from app.domain.worklog import WorklogBase
 from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,
     CreateUserActivityDto,
-    TaskBatchDto,
 )
-from app.models import Worklog
 from app.services.base import BaseService
 
 
@@ -29,100 +24,36 @@ class ActivityService(BaseService):
 
     def __init__(self, session: AsyncSession):
         super().__init__(session=session)
-        self._activity_type = ActivityTypeBase
-        self._activity = ActivityBase
-        self._activity_user = ActivityUserBase
-        self._user = UserWithActivities
-        self._activity_task = ActivityTaskBase
-        self._worklog = WorklogBase
-
-    def _get_model(self):
-        return self._activity
 
     async def get_activity_types(self) -> List[ActivityTypeBase]:
         """Get all activity types"""
-        return await self._activity_type.get_all(self.session)
+        return await ActivityTypeBase.get_all(self.session)
 
     async def get_all_activities(self) -> List[ActivityBase]:
-        return await self._activity.get_all(self.session)
+        return await ActivityBase.get_all(self.session)
 
     async def create_activity(self, data: CreateActivityDto) -> ActivityBase:
         """Create an activity item, ADMIN ONLY"""
-        return await self._activity.create(self.session, data)
+        return await ActivityBase.create(self.session, data)
 
     async def assign_user_to_activity_item(self, data: CreateUserActivityDto) -> ActivityUserBase:
         """Assign the employee to a specific activity so they can track their hours on it, ADMIN ONLY"""
-        return await self._activity_user.create(self.session, data)
+        return await ActivityUserBase.create(self.session, data)
 
     async def get_activities_by_user(self, user_id: UUID) -> List[ActivityWithType]:
         """Get all activity items performed by an employee"""
-        model = self._user.model
-        user_found = await self._user.get_one(self.session, user_id, field=model.id)
+        model = UserWithActivities.model
+        user_found = await UserWithActivities.get_one(self.session, user_id, field=model.id)
         activity_items = [item for item in user_found.activity_items]
         return activity_items
 
     async def get_all_tasks(self, user_id: UUID) -> List[ActivityTaskBase]:
         """Get all tasks for a given user_id"""
-        model = self._activity_task.model
-        return await self._activity_task.get_all(self.session, where_clause=[model.user_id == user_id])
+        model = ActivityTaskBase.model
+        return await ActivityTaskBase.get_all(self.session, where_clause=[model.user_id == user_id])
 
     async def add_activity_task(self, data: CreateActivityTaskDto, user_id: UUID) -> ActivityTaskBase:
         """An employee will add their own task for tracking for a specific activity"""
-        return await self._activity_task.create(
+        return await ActivityTaskBase.create(
             self.session, ActivityTaskBase(title=data.title, activity_id=data.activity_id, user_id=user_id)
         )
-
-    async def batch_worklog(self, data: TaskBatchDto, user_id: UUID) -> List[WorklogBase]:
-        """An employee will record their time (hours) spent on given tasks"""
-        to_delete: List[WorklogBase] = []
-        upserted_logs: List[WorklogBase] = []
-        to_upsert: List[WorklogBase] = []
-        task_deletions: List[UUID] = data.deletions
-        await self._activity_task.delete_many(
-            self.session, [ActivityTaskBase.model.id.in_(task_deletions)], commit=False
-        )
-        for task in data.tasks:
-            affected_dates = {item.date for item in task.worklogs}
-
-            task_data = ActivityTaskBase(title=task.title, activity_id=task.activity_id, id=task.id, user_id=user_id)
-            current_task = await self._activity_task.upsert_one(self.session, task_data, commit=False)
-
-            for item in task.worklogs:
-                worklog = WorklogBase(
-                    id=item.id,
-                    date=item.date,
-                    duration=item.duration,
-                    activity_task_id=current_task.id,
-                    user_id=user_id,
-                )
-                if worklog.id and (worklog.duration is None or worklog.duration == 0):
-                    to_delete.append(worklog)
-                else:
-                    to_upsert.append(worklog)
-
-        upsert_result = await self._worklog.upsert_many(
-            self.session,
-            to_upsert,
-            commit=False,
-        )
-        upserted_logs.extend(upsert_result)
-        await self._worklog.delete_many(self.session, [Worklog.id.in_([item.id for item in to_delete])], commit=False)
-
-        await self.session.flush()
-
-        stmt = (
-            select(Worklog.date, func.sum(Worklog.duration))
-            .where(Worklog.user_id == user_id)
-            .where(Worklog.date.in_(affected_dates))
-            .group_by(Worklog.date)
-            .having(func.sum(Worklog.duration) > 8)
-        )
-        result = await self.session.execute(stmt)
-        errors = result.all()
-
-        if errors:
-            details = ", ".join([f"{r[0]} ({r[1]}h)" for r in errors])
-            raise BadRequestException(f"Daily limit exceeded: {details}")
-
-        await self.session.commit()
-        return upsert_result

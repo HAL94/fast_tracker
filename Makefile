@@ -17,7 +17,7 @@ migrate-dev: ## Run migrations for dev db
 	docker compose up --build migration
 
 .PHONY: test
-test: db-clean migrate-test run-pytest ## 1. Clean, 2. Migrate, 3. Test
+test: db-clean migrate-test seed-test run-pytest ## 1. Clean, 2. Migrate, 3. Test
 
 db-clean: ## Drop and recreate the public schema for test db
 	@echo "--- 🧹 Cleaning Database ---"
@@ -28,8 +28,13 @@ db-clean: ## Drop and recreate the public schema for test db
 
 migrate-test: ## Run alembic migrations for test db
 	@echo "--- 🚀 Running Migrations ---"
-	docker compose -f docker-compose.test.yaml up migrator_test
+	docker compose -f docker-compose.test.yaml run --rm migrator_test
+
+seed-test: ## New explicit step for seeding
+	@echo "--- 🌱 Seeding Test Data ---"
+	docker compose -f docker-compose.test.yaml run --rm seeder_test
+
 
 run-pytest: ## Run the tests
 	@echo "--- 🧪 Running Pytest ---"
-	docker compose -f docker-compose.test.yaml up --build pytest
+	docker compose -f docker-compose.test.yaml run --rm pytest

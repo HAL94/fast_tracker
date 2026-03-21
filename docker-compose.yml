@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: base
     volumes:
       - ./app:/src/app:z
       - ./migrations:/src/migrations:z
@@ -40,6 +41,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: base
     # The command to execute the Alembic migration script
     command: ["uv", "run", "alembic", "upgrade", "head"]
 
@@ -57,6 +59,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: base
     # The command to execute the Alembic migration script
     command: ["uv", "run", "-m", "app.seed.data"]
 

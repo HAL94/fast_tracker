@@ -37,11 +37,13 @@ class BadRequestException(AppException):
     def __init__(self, message: str = "Requested resource is not found"):
         super().__init__(status_code=status.HTTP_400_BAD_REQUEST, message=message)
 
+
 class UnprocessableInputException(AppException):
     """
     A request that failed input validation
     """
-    def __init__(self, message = "Request has invalid data, unprocessable entity"):
+
+    def __init__(self, message="Request has invalid data, unprocessable entity"):
         super().__init__(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, message=message)
 
 
@@ -88,3 +90,8 @@ class NotFoundException(AppException):
 
     def __init__(self, message: str = "Resource not found"):
         super().__init__(status_code=status.HTTP_404_NOT_FOUND, message=message)
+
+
+class IntegrityException(AppException):
+    def __init__(self, message: str = "An integrity violation occured"):
+        super().__init__(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, message=message)

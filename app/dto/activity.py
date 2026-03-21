@@ -1,5 +1,5 @@
 from datetime import date as Date
-from typing import List, Optional
+from typing import List, Optional, Self
 from uuid import UUID
 
 from pydantic import Field, model_validator
@@ -16,7 +16,6 @@ class CreateUserActivityDto(BaseModel):
 class CreateActivityDto(BaseModel):
     title: str
     code: str
-    expected_hours_monthly: int
     activity_type_id: UUID
 
 
@@ -30,7 +29,22 @@ class UpsertActivityTask(BaseModel):
     id: Optional[UUID] = Field(default=None, description="Unique identifier of the activity task.")
     title: str = Field(description="Title of the activity task", min_length=3)
     activity_id: UUID = Field(description="Activity which the task belongs to.")
+    month: int = Field(description="Month of the task")
+    year: int = Field(description="Year of the task")
     worklogs: List["WorklogDto"] = Field(description="Worklogs associated with the activity task.", default=[])
+
+    @model_validator(mode="after")
+    def validate_worklogs_month_year(self) -> Self:
+        for worklog_item in self.worklogs:
+            worklog_date = worklog_item.date
+            worklog_month = worklog_date.month
+            worklog_year = worklog_date.year
+
+            if self.month != worklog_month or self.year != worklog_year:
+                raise UnprocessableInputException(
+                    f"Worklogs contain a date at {worklog_item.date} that is not within ({self.month:02d}-{self.year})"
+                )
+        return self
 
 
 class WorklogDto(BaseModel):

@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import Any, Callable, Dict, Literal, Optional, Self, Union, override
+from typing import Any, Dict, Literal, Optional, Self, Union, override
 
 from asyncpg.exceptions import ForeignKeyViolationError, UniqueViolationError
 from pydantic import BaseModel
 from sqlalchemy import (
     Column,
     DateTime,
-    Select,
     delete,
     func,
     insert,
@@ -16,54 +15,22 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.inspection import Inspectable, inspect
+from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import (
-    DeclarativeBaseNoMeta as _DeclarativeBaseNoMeta,
-)
-from sqlalchemy.orm import (
+    DeclarativeBase,
     Mapped,
     RelationshipProperty,
     mapped_column,
 )
 from sqlalchemy.orm.attributes import InstrumentedAttribute
-from sqlalchemy.orm.decl_api import (
-    DeclarativeAttributeIntercept as _DeclarativeAttributeIntercept,
-)
 from sqlalchemy.orm.strategy_options import Load, _AbstractLoad
-from sqlalchemy.sql._typing import _HasClauseElement
-from sqlalchemy.sql.elements import ColumnElement, SQLCoreOperations
-from sqlalchemy.sql.roles import ColumnsClauseRole, TypedColumnsClauseRole
+from sqlalchemy.sql.elements import ColumnElement
 
+from app.core.exceptions import IntegrityException
 from app.core.pagination import PaginatedResult
 
 
-class DeclarativeBaseNoMeta(_DeclarativeBaseNoMeta):
-    pass
-
-
-class DeclarativeAttributeIntercept(_DeclarativeAttributeIntercept):
-    @property
-    def select_(
-        cls,  # noqa: N805
-    ) -> Callable[
-        [
-            tuple[
-                TypedColumnsClauseRole[Any]
-                | ColumnsClauseRole
-                | SQLCoreOperations[Any]
-                | Inspectable[_HasClauseElement[Any]]
-                | _HasClauseElement[Any]
-                | Any,
-                ...,
-            ],
-            dict[str, Any],
-        ],
-        Select[Any],
-    ]:
-        return select
-
-
-class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
+class Base(DeclarativeBase):
     __abstract__ = True
 
     created_at: Mapped[datetime] = mapped_column(
@@ -146,8 +113,6 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
 
             result_scalar = result.scalar()
 
-            print(f"Result scalar: {result_scalar}")
-
             return result_scalar is not None
         except Exception as e:
             raise e
@@ -180,11 +145,11 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
             await session.rollback()
 
             if e.orig.sqlstate == UniqueViolationError.sqlstate:
-                raise ValueError("Unique Constraint is Violated")
+                raise IntegrityException("Unique constraint is violated")
             elif e.orig.sqlstate == ForeignKeyViolationError.sqlstate:
-                raise ValueError("Foreig Key Constraint is violated")
+                raise IntegrityException("Foreign key constraint is violated")
 
-            raise e
+            raise IntegrityException(str(e))
 
     @classmethod
     async def create_many(
@@ -245,9 +210,8 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
             if order_clause:
                 statement = statement.order_by(*order_clause)
 
-            total_count = await session.scalar(
-                select(func.count()).select_from(select(cls).where(*where_base).subquery())
-            )
+            total_count = await session.scalar(select(func.count()).where(*where_base))
+
             base_options = cls.get_select_in_load()
             if base_options:
                 statement = statement.options(*base_options)
@@ -323,7 +287,7 @@ class Base(DeclarativeBaseNoMeta, metaclass=DeclarativeAttributeIntercept):
         if where_clause:
             where_base.extend(where_clause)
 
-        statement: Select = cls.select_(cls).where(*where_base)
+        statement = select(cls).where(*where_base)
 
         if base_options:
             statement = statement.options(*base_options)

@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from datetime import datetime
 from typing import List, Optional
 
 from app.constants.roles import UserRole
@@ -33,6 +34,7 @@ async def seed_employee_users() -> List[UserBase]:
         is_active=True,
         is_admin=False,
         role=UserRole.USER,
+        id=uuid.UUID('04026c86-9a31-44ed-a93f-b6ab1f4f8030')
     )
     james_brown = UserBase(
         full_name="James Brown",
@@ -41,6 +43,7 @@ async def seed_employee_users() -> List[UserBase]:
         is_active=True,
         is_admin=False,
         role=UserRole.USER,
+        id=uuid.UUID('f30f1a7b-303d-44ce-bab6-29334ac39539')
     )
     data = [jason_limbu, james_brown]
     index_elements = ["email"]
@@ -55,11 +58,10 @@ async def seed_activity_types() -> List[ActivityTypeBase]:
         title="Non Project Activities", id=uuid.UUID("2f31c0e0-8fab-42bf-bf6e-b38cf5ba09a4")
     )
     leave = ActivityTypeBase(title="Leave", id=uuid.UUID("a632f36d-4ead-427f-98fe-6bb6d6896960"))
-    index_elements = ["id"]
     data = [project_activities, non_project_activities, leave]
 
     async with session_manager.session() as session:
-        return await ActivityTypeBase.upsert_many(session, data, index_elements)
+        return await ActivityTypeBase.upsert_many(session, data)
 
 
 async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[ActivityBase]:
@@ -107,10 +109,9 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
         ),
     ]
 
-    index_elements = ["id"]
     async with session_manager.session() as session:
-        created_projet_activities = await ActivityBase.upsert_many(session, project_activities, index_elements)
-        created_non_project_activities = await ActivityBase.upsert_many(session, non_project_activities, index_elements)
+        created_projet_activities = await ActivityBase.upsert_many(session, project_activities)
+        created_non_project_activities = await ActivityBase.upsert_many(session, non_project_activities)
 
     return created_projet_activities, created_non_project_activities
 
@@ -136,7 +137,6 @@ async def seed_emplyee_activities(
                 )
             )
     index_elements = ["user_id", "activity_id"]
-
     async with session_manager.session() as session:
         return await ActivityUserBase.upsert_many(session, data, index_elements)
 
@@ -150,12 +150,15 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
                     id=uuid.uuid4(),
                     title=f"Task for {activity.code} for employee {employee.full_name}",
                     user_id=employee.id,
+                    month=datetime.now().month,
+                    year=datetime.now().year,
                     activity_id=activity.id,
                 )
             )
 
     async with session_manager.session() as session:
-        await ActivityTaskBase.upsert_many(session, data)
+        index_elements = ["month", "year", "activity_id", "title"]
+        await ActivityTaskBase.upsert_many(session, data, index_elements)
 
 
 async def seed_data():
