@@ -4,6 +4,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from faker import Faker
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -117,9 +118,16 @@ async def user(async_session: AsyncSession) -> UserBase:
 
 
 @pytest_asyncio.fixture
-async def jason_user_id(async_session: AsyncSession) -> UUID:
-    """Fixture to get the user id of a user named Jason."""
+async def user_id(async_session: AsyncSession) -> UUID:
+    """Fixture to get the id of a user named Jason."""
     user = await UserBase.get_one(async_session, "jason@example.com", field=UserBase.model.email)
+    return user.id
+
+
+@pytest_asyncio.fixture
+async def tester_id(async_session: AsyncSession) -> UUID:
+    """Fixture to get the id of another user used in tests"""
+    user = await UserBase.get_one(async_session, "tester@example.com", field=UserBase.model.email)
     return user.id
 
 
@@ -159,3 +167,15 @@ async def sample_activity(async_session: AsyncSession, project_activity_type: Ac
     activity_upserted = await ActivityBase.upsert_one(async_session, activity, ["code"], commit=False)
     await async_session.flush()
     return activity_upserted
+
+
+@pytest.fixture
+def random_title():
+    fake = Faker()
+    title = fake.sentence(nb_words=3)
+    return title.rstrip(".")
+
+
+@pytest.fixture
+def fixed_title():
+    return "A new task"

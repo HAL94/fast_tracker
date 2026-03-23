@@ -1,3 +1,4 @@
+import logging
 from datetime import date as Date
 from typing import List
 from uuid import UUID
@@ -6,13 +7,15 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, with_loader_criteria
 
-from app.core.exceptions import BadRequestException, IntegrityException, NotFoundException, UnauthorizedException
+from app.core.exceptions import BadRequestException
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.worklog import WorklogBase
-from app.dto.activity import TaskBatchDto
-from app.dto.journal import GetJournalDto, JournalActivity
+from app.dto.journal import GetJournalDto, JournalActivity, TaskBatchDto
 from app.models import Activity, ActivityTask, ActivityUser, Worklog
 from app.services.base import BaseService
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class JournalService(BaseService):
@@ -22,13 +25,13 @@ class JournalService(BaseService):
     async def batch_worklog(self, data: TaskBatchDto, user_id: UUID) -> List[WorklogBase]:
         """An employee will record their time (hours) spent on given tasks"""
         to_delete: List[WorklogBase] = []
-        to_upsert: List[WorklogBase] = []
 
         task_deletions: List[UUID] = data.deletions
         await ActivityTaskBase.delete_many(self.session, [ActivityTask.id.in_(task_deletions)], commit=False)
 
         affected_dates: set[Date] = set()
 
+        upsert_result = []
         for task in data.tasks:
             for item in task.worklogs:
                 affected_dates.add(item.date)
@@ -43,7 +46,11 @@ class JournalService(BaseService):
                 month=task.month,
                 year=task.year,
             )
-            current_task = await ActivityTaskBase.upsert_one(self.session, task_data, commit=False)
+            index_elements = ["id"]
+            if task.id is None:
+                index_elements = ["title", "activity_id", "month", "year"]
+
+            current_task = await ActivityTaskBase.upsert_one(self.session, task_data, index_elements, commit=False)
 
             for item in task.worklogs:
                 if item.id:
@@ -59,13 +66,17 @@ class JournalService(BaseService):
                 if worklog.id and (worklog.duration is None or worklog.duration == 0):
                     to_delete.append(worklog)
                 else:
-                    to_upsert.append(worklog)
+                    index_elements = ["id"]
+                    if item.id is None:
+                        index_elements = ["activity_task_id", "date", "user_id"]
+                    upserted_worklog = await WorklogBase.upsert_one(
+                        self.session,
+                        worklog,
+                        index_elements,
+                        commit=False,
+                    )
+                    upsert_result.append(upserted_worklog)
 
-        upsert_result = await WorklogBase.upsert_many(
-            self.session,
-            to_upsert,
-            commit=False,
-        )
         await WorklogBase.delete_many(self.session, [Worklog.id.in_([item.id for item in to_delete])], commit=False)
 
         await self.session.flush()
@@ -85,6 +96,8 @@ class JournalService(BaseService):
             raise BadRequestException(f"Daily limit exceeded: {details}")
 
         await self.session.commit()
+
+        logger.info(f"upserted results: {upsert_result}")
         return upsert_result
 
     async def get_journal(self, data: GetJournalDto, user_id: UUID) -> List[JournalActivity]:

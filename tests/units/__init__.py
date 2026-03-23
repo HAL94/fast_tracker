@@ -1,8 +1,22 @@
 import uuid
-from datetime import date as Date
-from typing import Callable
+from typing import Callable, List, Optional
 
-from app.domain.activity import ActivityBase
-from app.dto.activity import TaskBatchDto
+from app.dto.journal import TaskBatchDto, UpsertActivityTask, WorklogDto
 
-type WorklogFactoryFn = Callable[[uuid.UUID, ActivityBase], Callable[[int, Date], TaskBatchDto]]
+# size: Optional[int] = None, year: Optional[int] = None, month: Optional[int] = None
+type WorklogFactoryFn = Callable[[], Callable[[Optional[int], Optional[int], Optional[int]], List[WorklogDto]]]
+type TaskBatchFactoryFn = Callable[[], Callable[[List[uuid.UUID], List[WorklogDto]], TaskBatchDto]]
+type TaskFactoryFn = Callable[
+    [],
+    Callable[
+        [
+            uuid.UUID,
+            Optional[int],
+            Optional[int],
+            Optional[int],
+            Optional[int],
+            Optional[List[WorklogDto]],
+            List[UpsertActivityTask],
+        ]
+    ],
+]
