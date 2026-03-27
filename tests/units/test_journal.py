@@ -232,7 +232,7 @@ class TestJournal:
         assert len(result) == worklog_size
 
     @pytest.mark.asyncio
-    async def test_task_is_not_owned_by_user(
+    async def test_activity_not_linked_to_user(
         self,
         tester_id: UUID,
         async_session: AsyncSession,
@@ -241,10 +241,11 @@ class TestJournal:
         task_batch_factory: TaskBatchFactoryFn,
     ):
         """
-        Goal: Creates a worklog for an already persisted task and then attempt to update task.
-        Test: check if user owns the provided task id if any (checked by service), if fails, will throw \
+        Goal: Creates a worklog for an already persisted task but under an activity not linked to the user.
+              User will attempt to update task.
+        Test: check if user is linked to the activity if fails, will throw \
             an unthorized error.
-        Outcome: Since this task is not owned by the current user, should fail with a Unauthorized exception
+        Outcome: Since the activity is not owned by the current user, should fail with a Unauthorized exception
         """
         journal_service = JournalService(async_session)
         worklog_size = 1
@@ -265,7 +266,7 @@ class TestJournal:
         with pytest.raises(UnauthorizedException) as excinfo:
             await journal_service.batch_worklog(data=task_batch_dto, user_id=tester_id)
 
-        assert "Not allowed to access task resource" in str(excinfo.value)
+        assert "Not allowed to access activity resource" in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_duration_exceed_8_hours(
