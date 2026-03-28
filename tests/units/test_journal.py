@@ -7,9 +7,10 @@ from uuid import UUID
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BadRequestException, UnauthorizedException
-from app.domain.activity import ActivityBase
+from app.core.exceptions import BadRequestException, NotFoundException, UnauthorizedException
+from app.domain.activity import ActivityBase, ActivityUserBase
 from app.domain.activity_task import ActivityTaskBase
+from app.domain.activity_type import ActivityTypeBase
 from app.domain.worklog import WorklogBase
 from app.dto.journal import TaskBatchDto, UpsertActivityTask, WorklogDto
 from app.services.journal import JournalService
@@ -269,6 +270,97 @@ class TestJournal:
         assert "Not allowed to access activity resource" in str(excinfo.value)
 
     @pytest.mark.asyncio
+    async def test_task_not_owned_by_user(
+        self,
+        tester_id: UUID,
+        async_session: AsyncSession,
+        random_persisted_task: ActivityTaskBase,
+        worklog_factory: WorklogFactoryFn,
+        task_batch_factory: TaskBatchFactoryFn,
+    ):
+        """
+        Goal: Test if current user owns the resource (Task).
+        Outcome: The user should not be able update the task since they do not own it.
+        """
+        # make a relationship between tester id and activity
+        await ActivityUserBase.upsert_one(
+            async_session,
+            ActivityUserBase(user_id=tester_id, activity_id=random_persisted_task.activity_id),
+        )
+        worklog_size = 1
+        worklogs = worklog_factory(worklog_size)
+        task = UpsertActivityTask(
+            id=random_persisted_task.id,
+            title=random_persisted_task.title,
+            activity_id=random_persisted_task.activity_id,
+            month=random_persisted_task.month,
+            year=random_persisted_task.year,
+            worklogs=worklogs,
+        )
+        task_batch_dto = task_batch_factory(
+            deletions=[],
+            tasks=[task],
+        )
+        journal_service = JournalService(async_session)
+        with pytest.raises(UnauthorizedException) as excinfo:
+            await journal_service.batch_worklog(data=task_batch_dto, user_id=tester_id)
+
+        assert "Not allowed to access task resource" in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_worklog_not_owned_by_user(
+        self,
+        tester_id: UUID,
+        async_session: AsyncSession,
+        random_persisted_task: ActivityTaskBase,
+        random_task: dict[str, Any],
+        worklog_factory: WorklogFactoryFn,
+        task_batch_factory: TaskBatchFactoryFn,
+    ):
+        """
+        Goal: Test if current user owns the resource (Task).
+        Outcome: The user should not be able update the task since they do not own it.
+        """
+        # make a relationship between tester id and activity
+        await ActivityUserBase.upsert_one(
+            async_session,
+            ActivityUserBase(
+                user_id=tester_id, activity_id=random_persisted_task.activity_id, updated_at=datetime.now()
+            ),
+            ["user_id", "activity_id"],
+            commit=False,
+        )
+        worklog_size = 1
+        worklogs = worklog_factory(worklog_size)
+        worklog_dto: WorklogDto = worklogs[0]
+        created_worklog = await WorklogBase.create(
+            async_session,
+            WorklogBase(
+                date=worklog_dto.date,
+                duration=worklog_dto.duration,
+                activity_task_id=random_persisted_task.id,
+                user_id=random_persisted_task.user_id,
+            ),
+            commit=False,
+        )
+        task = UpsertActivityTask(
+            title=random_task.get("title"),
+            activity_id=random_task.get("activity_id"),
+            month=random_task.get("month"),
+            year=random_task.get("year"),
+            worklogs=[WorklogDto(id=created_worklog.id, date=created_worklog.date, duration=created_worklog.duration)],
+        )
+        task_batch_dto = task_batch_factory(
+            deletions=[],
+            tasks=[task],
+        )
+        journal_service = JournalService(async_session)
+        with pytest.raises(UnauthorizedException) as excinfo:
+            await journal_service.batch_worklog(data=task_batch_dto, user_id=tester_id)
+
+        assert "Not allowed to access worklog resource" in str(excinfo.value)
+
+    @pytest.mark.asyncio
     async def test_duration_exceed_8_hours(
         self,
         user_id: UUID,
@@ -362,3 +454,120 @@ class TestJournal:
         # We expect only the first 4-hour log to exist.
         assert len(final_worklogs) == 1
         assert final_worklogs[0].duration == 4
+
+    @pytest.mark.asyncio
+    async def test_activity_swap_violation(
+        self,
+        user_id: UUID,
+        async_session: AsyncSession,
+        project_activity_type: ActivityTypeBase,
+        random_persisted_task: ActivityTaskBase,
+        task_batch_factory: TaskBatchFactoryFn,
+    ):
+        """
+        Goal: check if an activity change is occuring
+        Test: users should not be able to move tasks between activities even if they own both activities
+        """
+        created_activity = await ActivityBase.create(
+            async_session,
+            ActivityBase(title="HR Project", code="ARMC-AIHR", activity_type_id=project_activity_type.id),
+            commit=False,
+        )
+
+        logger.info(f"Created activity: {created_activity}")
+
+        other_activity = await ActivityUserBase.create(
+            async_session, ActivityUserBase(user_id=user_id, activity_id=created_activity.id), commit=False
+        )
+
+        logger.info(f"Activity User link: {other_activity}")
+
+        await async_session.flush()
+
+        task = UpsertActivityTask(
+            id=random_persisted_task.id,
+            title=random_persisted_task.title,
+            activity_id=other_activity.activity_id,
+            month=random_persisted_task.month,
+            year=random_persisted_task.year,
+            worklogs=[],
+        )
+
+        task_batch_dto = task_batch_factory(deletions=[], tasks=[task])
+        journal_service = JournalService(async_session)
+
+        with pytest.raises(BadRequestException) as exinfo:
+            await journal_service.batch_worklog(task_batch_dto, user_id)
+
+        assert "Moving tasks is not allowed" in str(exinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_task_implicit_creation(
+        self,
+        user_id: UUID,
+        async_session: AsyncSession,
+        random_persisted_task: ActivityTaskBase,
+        task_batch_factory: TaskBatchFactoryFn,
+    ):
+        """
+        Test: A task is sent without an ID but with a title, month, and year that already exists in the for that
+            activity in DB.
+        Goal: The service should "Upsert" (update) the existing task rather than creating a duplicate,
+            thanks to the composite key.
+        """
+        task = ActivityTaskBase(
+            title=random_persisted_task.title,
+            activity_id=random_persisted_task.activity_id,
+            user_id=user_id,
+            month=random_persisted_task.month,
+            year=random_persisted_task.year,
+        )
+        task_dto = UpsertActivityTask(
+            title=task.title, activity_id=task.activity_id, month=task.month, year=task.year, worklogs=[]
+        )
+        task_batch_dto = task_batch_factory(deletions=[], tasks=[task_dto])
+
+        journal_service = JournalService(async_session)
+
+        await journal_service.batch_worklog(task_batch_dto, user_id)
+
+        found_task = await ActivityTaskBase.get_one(
+            async_session, random_persisted_task.id, field=ActivityTaskBase.model.id
+        )
+
+        # by ensuring the id is still the same, we ensure an 'upsert' happend
+        assert found_task.id == random_persisted_task.id
+        assert found_task.month == task.month
+        assert found_task.year == task.year
+        assert found_task.title == task.title
+        assert found_task.activity_id == task.activity_id
+
+    @pytest.mark.asyncio
+    async def test_task_deletion(
+        self,
+        user_id: UUID,
+        async_session: AsyncSession,
+        random_persisted_task: ActivityTaskBase,
+        task_batch_factory: TaskBatchFactoryFn,
+    ):
+        """
+        Test: The same task_id is included in both the deletions list AND the tasks update list.
+        Goal: The task is deleted. The update is ignored (Sanitization takes precedence).
+        """
+        upsert_task = UpsertActivityTask(
+            id=random_persisted_task.id,
+            activity_id=random_persisted_task.activity_id,
+            month=random_persisted_task.month,
+            year=random_persisted_task.year,
+            title=random_persisted_task.title,
+            worklogs=[],
+        )
+        task_batch_dto = task_batch_factory(deletions=[random_persisted_task.id], tasks=[upsert_task])
+
+        journal_service = JournalService(async_session)
+        await journal_service.batch_worklog(task_batch_dto, user_id)
+
+        with pytest.raises(NotFoundException) as exinfo:
+            await ActivityTaskBase.get_one(async_session, random_persisted_task.id, field=ActivityTaskBase.model.id)
+
+        assert "Resource not found" in str(exinfo.value)

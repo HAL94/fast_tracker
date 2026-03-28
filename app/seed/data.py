@@ -147,7 +147,6 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
         for employee in employees:
             data.append(
                 ActivityTaskBase(
-                    id=uuid.uuid4(),
                     title=f"Task for {activity.code} for employee {employee.full_name}",
                     user_id=employee.id,
                     month=datetime.now().month,

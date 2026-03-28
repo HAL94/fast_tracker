@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, with_loader_criteria
 
 from app.core.exceptions import BadRequestException, UnauthorizedException
-from app.domain.activity import ActivityUserBase
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.worklog import WorklogBase
 from app.dto.journal import GetJournalDto, JournalActivity, TaskBatchDto
@@ -30,6 +29,9 @@ class JournalService(BaseService):
 
         result = (await self.session.execute(stmt)).scalars().all()
         result_set = set(result)
+
+        logger.info(f"user projects: {result}")
+        logger.info(f"project ids passed: {activities}")
 
         if activities - result_set:
             raise UnauthorizedException(message="Not allowed to access activity resource")
