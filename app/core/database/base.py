@@ -409,6 +409,8 @@ class Base(DeclarativeBase):
 
             data_dict = data.model_dump(exclude_none=True, by_alias=False)
 
+            print(f"Inserting: {data_dict}")
+
             stmt = pg_insert(cls).values(data_dict)
 
             if on_conflict == "do_update":
@@ -420,7 +422,12 @@ class Base(DeclarativeBase):
             else:
                 stmt = stmt.on_conflict_do_nothing(index_elements=index_elements)
 
-            result = await session.scalar(stmt.returning(cls))
+            result = (await session.execute(stmt.returning(cls))).scalar_one_or_none()
+
+            if result is None and on_conflict == "do_nothing":
+                # lookup by index_elements
+                lookup_criteria = {k: data_dict[k] for k in index_elements if k in data_dict}
+                result = (await session.execute(select(cls).filter_by(**lookup_criteria))).scalar_one_or_none()
 
             if commit:
                 await session.commit()

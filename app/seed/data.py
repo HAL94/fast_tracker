@@ -34,7 +34,7 @@ async def seed_employee_users() -> List[UserBase]:
         is_active=True,
         is_admin=False,
         role=UserRole.USER,
-        id=uuid.UUID('04026c86-9a31-44ed-a93f-b6ab1f4f8030')
+        id=uuid.UUID("04026c86-9a31-44ed-a93f-b6ab1f4f8030"),
     )
     james_brown = UserBase(
         full_name="James Brown",
@@ -43,7 +43,7 @@ async def seed_employee_users() -> List[UserBase]:
         is_active=True,
         is_admin=False,
         role=UserRole.USER,
-        id=uuid.UUID('f30f1a7b-303d-44ce-bab6-29334ac39539')
+        id=uuid.UUID("f30f1a7b-303d-44ce-bab6-29334ac39539"),
     )
     data = [jason_limbu, james_brown]
     index_elements = ["email"]
@@ -74,18 +74,18 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
             title="Saudi Company for Artificial Intelligence",
             code="SCAI-AUG",
         ),
-        ActivityBase(
-            id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
-            activity_type_id=project_activity.id,
-            title="Saudi Aramco",
-            code="ARMC-HIS",
-        ),
-        ActivityBase(
-            id=uuid.UUID("bf2678aa-a630-49aa-97f1-332221bf4449"),
-            activity_type_id=project_activity.id,
-            title="Saudi Aramco",
-            code="ARMC-HUG",
-        ),
+        # ActivityBase(
+        #     id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
+        #     activity_type_id=project_activity.id,
+        #     title="Saudi Aramco",
+        #     code="ARMC-HIS",
+        # ),
+        # ActivityBase(
+        #     id=uuid.UUID("bf2678aa-a630-49aa-97f1-332221bf4449"),
+        #     activity_type_id=project_activity.id,
+        #     title="Saudi Aramco",
+        #     code="ARMC-HUG",
+        # ),
     ]
 
     non_project_activities = [
@@ -149,14 +149,13 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
                 ActivityTaskBase(
                     title=f"Task for {activity.code} for employee {employee.full_name}",
                     user_id=employee.id,
-                    month=datetime.now().month,
-                    year=datetime.now().year,
                     activity_id=activity.id,
+                    updated_at=datetime.now(),
                 )
             )
 
     async with session_manager.session() as session:
-        index_elements = ["month", "year", "activity_id", "title"]
+        index_elements = ["activity_id", "title", "user_id"]
         await ActivityTaskBase.upsert_many(session, data, index_elements)
 
 

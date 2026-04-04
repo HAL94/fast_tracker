@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import ClassVar, List, Optional
 from uuid import UUID
 
@@ -15,8 +16,7 @@ class ActivityTaskBase(BaseModelDatabaseMixin[ActivityTask]):
     title: str
     activity_id: UUID
     user_id: UUID
-    month: int
-    year: int
+    updated_at: datetime = Field(default=datetime.now())
 
 
 class ActivityTaskWorklogs(ActivityTaskBase):

@@ -1,7 +1,7 @@
 import logging
 from datetime import date as Date
 from datetime import datetime
-from typing import Any
+from typing import Any, List
 from uuid import UUID
 
 import pytest
@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import BadRequestException, NotFoundException, UnauthorizedException
 from app.domain.activity import ActivityBase, ActivityUserBase
 from app.domain.activity_task import ActivityTaskBase
-from app.domain.activity_type import ActivityTypeBase
 from app.domain.worklog import WorklogBase
 from app.dto.journal import TaskBatchDto, UpsertActivityTask, WorklogDto
 from app.services.journal import JournalService
@@ -43,7 +42,7 @@ class TestJournal:
                 worklogs=[],
             )
         ]
-        task_batch_dto = task_batch_factory(deletions=[], tasks=tasks)
+        task_batch_dto = task_batch_factory(tasks=tasks)
 
         journal_service = JournalService(session=async_session)
         result = await journal_service.batch_worklog(data=task_batch_dto, user_id=user_id)
@@ -65,14 +64,11 @@ class TestJournal:
         worklogs = worklog_factory(size=1, year=today.year, month=today.month)
         task = UpsertActivityTask(
             title=persisted_task.title,
-            month=persisted_task.month,
-            year=persisted_task.year,
             activity_id=persisted_task.activity_id,
             user_id=user_id,
             worklogs=worklogs,
         )
         task_batch_dto = task_batch_factory(
-            deletions=[],
             tasks=[task],
         )
 
@@ -93,7 +89,6 @@ class TestJournal:
         user_id: UUID,
         async_session: AsyncSession,
         task_batch_factory: TaskBatchFactoryFn,
-        persisted_task: ActivityTaskBase,
         sample_activity: ActivityBase,
         task_factory: TaskFactoryFn,
     ):
@@ -104,31 +99,45 @@ class TestJournal:
         - The Goal: Ensure the ActivityTaskBase.delete_many correctly triggers the database ondelete="CASCADE",
             wiping the associated worklogs.
         """
-
+        created_task = await ActivityTaskBase.create(
+            async_session, ActivityTaskBase(title="to_be_deleted", activity_id=sample_activity.id, user_id=user_id)
+        )
         # Victim worklog for to test it gets deleted
-        await WorklogBase.upsert_one(
+        upserted_worklog = await WorklogBase.upsert_one(
             async_session,
-            WorklogBase(date=datetime.now().date(), duration=1.0, activity_task_id=persisted_task.id, user_id=user_id),
+            WorklogBase(date=datetime.now().date(), duration=3.0, activity_task_id=created_task.id, user_id=user_id),
             commit=False,
         )
         await async_session.flush()
-        task_size = 1
-        worklog_size = 2
-        today = datetime.now()
-        tasks = task_factory(sample_activity.id, task_size, worklog_size, today.year, today.month)
-        deletions = [persisted_task.id]
 
-        task_batch_dto = task_batch_factory(deletions=deletions, tasks=tasks)
+        task_size = 1
+        worklog_size = 1
+        created_tasks: List[UpsertActivityTask] = task_factory(sample_activity.id, task_size, worklog_size)
+
+        worklog_be_deleted = WorklogDto(id=upserted_worklog.id, date=upserted_worklog.date)
+        task_to_be_deleted = UpsertActivityTask(
+            title=created_task.title,
+            activity_id=created_task.activity_id,
+            worklogs=[worklog_be_deleted],
+        )
+        created_tasks.append(task_to_be_deleted)
+
+        task_batch_dto = task_batch_factory(tasks=created_tasks)
+
+        logger.info(f"TaskBatchDto: {task_batch_dto}")
 
         journal_service = JournalService(session=async_session)
         result = await journal_service.batch_worklog(task_batch_dto, user_id)
 
         deleted_task = await ActivityTaskBase.get_one(
-            async_session, persisted_task.id, field=ActivityTaskBase.model.id, raise_not_found=False
+            async_session,
+            created_task.id,
+            field=ActivityTaskBase.model.id,
+            raise_not_found=False,
         )
 
         worklogs_for_deleted_task = await WorklogBase.get_all(
-            async_session, where_clause=[WorklogBase.model.activity_task_id == persisted_task.id]
+            async_session, where_clause=[WorklogBase.model.activity_task_id == created_task.id]
         )
 
         assert result is not None
@@ -136,7 +145,7 @@ class TestJournal:
         assert len(worklogs_for_deleted_task) == 0
         assert len(result) == worklog_size
         first_item = result[0]
-        assert first_item.activity_task_id != persisted_task.id
+        assert first_item.activity_task_id != created_task.id
 
     @pytest.mark.asyncio
     async def test_partial_batch_worklog_update(
@@ -172,15 +181,12 @@ class TestJournal:
         monday_worklog_dto = WorklogDto(id=monday_worklog.id, date=monday_worklog.date, duration=2)
 
         tasks = UpsertActivityTask(
-            id=random_persisted_task.id,
             activity_id=random_persisted_task.activity_id,
             title=random_persisted_task.title,
-            year=random_persisted_task.year,
-            month=random_persisted_task.month,
             worklogs=[monday_worklog_dto],
         )
 
-        task_batch_dto = task_batch_factory(deletions=[], tasks=[tasks])
+        task_batch_dto = task_batch_factory(tasks=[tasks])
 
         journal_service = JournalService(session=async_session)
 
@@ -225,7 +231,6 @@ class TestJournal:
         worklog_size = 1
         tasks = task_factory(sample_activity.id, task_size, worklog_size)
         task_batch_dto = task_batch_factory(
-            deletions=[],
             tasks=tasks,
         )
         result = await journal_service.batch_worklog(data=task_batch_dto, user_id=user_id)
@@ -253,59 +258,17 @@ class TestJournal:
 
         worklogs = worklog_factory(worklog_size)
         task = UpsertActivityTask(
-            id=random_persisted_task.id,
             title=random_persisted_task.title,
             activity_id=random_persisted_task.activity_id,
-            month=random_persisted_task.month,
-            year=random_persisted_task.year,
             worklogs=worklogs,
         )
         task_batch_dto = task_batch_factory(
-            deletions=[],
             tasks=[task],
         )
         with pytest.raises(UnauthorizedException) as excinfo:
             await journal_service.batch_worklog(data=task_batch_dto, user_id=tester_id)
 
         assert "Not allowed to access activity resource" in str(excinfo.value)
-
-    @pytest.mark.asyncio
-    async def test_task_not_owned_by_user(
-        self,
-        tester_id: UUID,
-        async_session: AsyncSession,
-        random_persisted_task: ActivityTaskBase,
-        worklog_factory: WorklogFactoryFn,
-        task_batch_factory: TaskBatchFactoryFn,
-    ):
-        """
-        Goal: Test if current user owns the resource (Task).
-        Outcome: The user should not be able update the task since they do not own it.
-        """
-        # make a relationship between tester id and activity
-        await ActivityUserBase.upsert_one(
-            async_session,
-            ActivityUserBase(user_id=tester_id, activity_id=random_persisted_task.activity_id),
-        )
-        worklog_size = 1
-        worklogs = worklog_factory(worklog_size)
-        task = UpsertActivityTask(
-            id=random_persisted_task.id,
-            title=random_persisted_task.title,
-            activity_id=random_persisted_task.activity_id,
-            month=random_persisted_task.month,
-            year=random_persisted_task.year,
-            worklogs=worklogs,
-        )
-        task_batch_dto = task_batch_factory(
-            deletions=[],
-            tasks=[task],
-        )
-        journal_service = JournalService(async_session)
-        with pytest.raises(UnauthorizedException) as excinfo:
-            await journal_service.batch_worklog(data=task_batch_dto, user_id=tester_id)
-
-        assert "Not allowed to access task resource" in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_worklog_not_owned_by_user(
@@ -351,7 +314,6 @@ class TestJournal:
             worklogs=[WorklogDto(id=created_worklog.id, date=created_worklog.date, duration=created_worklog.duration)],
         )
         task_batch_dto = task_batch_factory(
-            deletions=[],
             tasks=[task],
         )
         journal_service = JournalService(async_session)
@@ -378,14 +340,11 @@ class TestJournal:
         upserted_task = await ActivityTaskBase.upsert_one(
             async_session,
             ActivityTaskBase(
-                id=random_task.get("id"),
                 title=random_task.get("title"),
                 activity_id=random_task.get("activity_id"),
                 user_id=user_id,
-                month=sunday.month,
-                year=sunday.year,
             ),
-            ["title", "activity_id", "month", "year"],
+            ["title", "activity_id", "user_id"],
             commit=False,
         )
         await async_session.flush()
@@ -394,11 +353,8 @@ class TestJournal:
         ]
 
         task_dto = UpsertActivityTask(
-            id=upserted_task.id,
             title=upserted_task.title,
             activity_id=upserted_task.activity_id,
-            month=sunday.month,
-            year=sunday.year,
             worklogs=worklogs,
         )
         journal_service = JournalService(async_session)
@@ -411,14 +367,11 @@ class TestJournal:
         upserted_task = await ActivityTaskBase.upsert_one(
             async_session,
             ActivityTaskBase(
-                id=random_task.get("id"),
                 title="Conflicting Task",
                 activity_id=random_task.get("activity_id"),
                 user_id=user_id,
-                month=sunday.month,
-                year=sunday.year,
             ),
-            ["title", "activity_id", "month", "year"],
+            ["title", "activity_id", "user_id"],
             commit=False,
         )
         await async_session.flush()
@@ -427,11 +380,8 @@ class TestJournal:
         ]
 
         task_dto = UpsertActivityTask(
-            id=upserted_task.id,
             title=upserted_task.title,
             activity_id=upserted_task.activity_id,
-            month=sunday.month,
-            year=sunday.year,
             worklogs=worklogs,
         )
 
@@ -456,61 +406,16 @@ class TestJournal:
         assert final_worklogs[0].duration == 4
 
     @pytest.mark.asyncio
-    async def test_activity_swap_violation(
-        self,
-        user_id: UUID,
-        async_session: AsyncSession,
-        project_activity_type: ActivityTypeBase,
-        random_persisted_task: ActivityTaskBase,
-        task_batch_factory: TaskBatchFactoryFn,
-    ):
-        """
-        Goal: check if an activity change is occuring
-        Test: users should not be able to move tasks between activities even if they own both activities
-        """
-        created_activity = await ActivityBase.create(
-            async_session,
-            ActivityBase(title="HR Project", code="ARMC-AIHR", activity_type_id=project_activity_type.id),
-            commit=False,
-        )
-
-        logger.info(f"Created activity: {created_activity}")
-
-        other_activity = await ActivityUserBase.create(
-            async_session, ActivityUserBase(user_id=user_id, activity_id=created_activity.id), commit=False
-        )
-
-        logger.info(f"Activity User link: {other_activity}")
-
-        await async_session.flush()
-
-        task = UpsertActivityTask(
-            id=random_persisted_task.id,
-            title=random_persisted_task.title,
-            activity_id=other_activity.activity_id,
-            month=random_persisted_task.month,
-            year=random_persisted_task.year,
-            worklogs=[],
-        )
-
-        task_batch_dto = task_batch_factory(deletions=[], tasks=[task])
-        journal_service = JournalService(async_session)
-
-        with pytest.raises(BadRequestException) as exinfo:
-            await journal_service.batch_worklog(task_batch_dto, user_id)
-
-        assert "Moving tasks is not allowed" in str(exinfo.value)
-
-    @pytest.mark.asyncio
     async def test_task_implicit_creation(
         self,
         user_id: UUID,
         async_session: AsyncSession,
         random_persisted_task: ActivityTaskBase,
+        worklog_factory: WorklogFactoryFn,
         task_batch_factory: TaskBatchFactoryFn,
     ):
         """
-        Test: A task is sent without an ID but with a title, month, and year that already exists in the for that
+        Test: A task is sent without an ID but with a title, and activity_id that already exists in the for that
             activity in DB.
         Goal: The service should "Upsert" (update) the existing task rather than creating a duplicate,
             thanks to the composite key.
@@ -519,16 +424,12 @@ class TestJournal:
             title=random_persisted_task.title,
             activity_id=random_persisted_task.activity_id,
             user_id=user_id,
-            month=random_persisted_task.month,
-            year=random_persisted_task.year,
         )
-        task_dto = UpsertActivityTask(
-            title=task.title, activity_id=task.activity_id, month=task.month, year=task.year, worklogs=[]
-        )
-        task_batch_dto = task_batch_factory(deletions=[], tasks=[task_dto])
+        worklogs = worklog_factory()
+        task_dto = UpsertActivityTask(title=task.title, activity_id=task.activity_id, worklogs=worklogs)
+        task_batch_dto = task_batch_factory(tasks=[task_dto])
 
         journal_service = JournalService(async_session)
-
         await journal_service.batch_worklog(task_batch_dto, user_id)
 
         found_task = await ActivityTaskBase.get_one(
@@ -537,8 +438,6 @@ class TestJournal:
 
         # by ensuring the id is still the same, we ensure an 'upsert' happend
         assert found_task.id == random_persisted_task.id
-        assert found_task.month == task.month
-        assert found_task.year == task.year
         assert found_task.title == task.title
         assert found_task.activity_id == task.activity_id
 
@@ -551,18 +450,21 @@ class TestJournal:
         task_batch_factory: TaskBatchFactoryFn,
     ):
         """
+        NOTE: this test scenario is invalid. We should now delete task only if all of its worklogs are deleted.
+        Deletion of a task should now be an implicit operation.
+        The user will see a grid, and if they delete all worklogs for
+        a task, then we delete the task.
+
+        Original Scneario:
         Test: The same task_id is included in both the deletions list AND the tasks update list.
         Goal: The task is deleted. The update is ignored (Sanitization takes precedence).
         """
         upsert_task = UpsertActivityTask(
-            id=random_persisted_task.id,
             activity_id=random_persisted_task.activity_id,
-            month=random_persisted_task.month,
-            year=random_persisted_task.year,
             title=random_persisted_task.title,
             worklogs=[],
         )
-        task_batch_dto = task_batch_factory(deletions=[random_persisted_task.id], tasks=[upsert_task])
+        task_batch_dto = task_batch_factory(tasks=[upsert_task])
 
         journal_service = JournalService(async_session)
         await journal_service.batch_worklog(task_batch_dto, user_id)

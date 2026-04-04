@@ -225,7 +225,11 @@ class BaseModelDatabaseMixin[T](AppBaseModel, ABC):
         if return_as_base:
             return result
 
-        return cls.model_validate(result, from_attributes=True)
+        print(f"Got result? {result}")
+        if result:
+            return cls.model_validate(result, from_attributes=True)
+
+        return None
 
     @classmethod
     async def delete_one(

@@ -32,10 +32,9 @@ def worklog_batch(fixed_title: str) -> TaskBatchDto:
 
 @pytest.fixture
 def task_batch_factory():
-    def _make(deletions: List[uuid.UUID], tasks: List[WorklogDto]):
+    def _make(tasks: Optional[List[WorklogDto]] = None):
         return TaskBatchDto(
-            deletions=deletions,
-            tasks=tasks,
+            tasks=tasks or [],
         )
 
     return _make
@@ -68,31 +67,25 @@ def worklog_factory():
 
 @pytest.fixture
 def sample_task(fixed_title: str, sample_activity: ActivityBase):
-    today = datetime.now()
-    return {"title": fixed_title, "year": today.year, "month": today.month, "activity_id": sample_activity.id}
+    return {"title": fixed_title, "activity_id": sample_activity.id}
 
 
 @pytest.fixture
 def random_task(random_title: str, sample_activity: ActivityBase):
-    today = datetime.now()
-    return {"title": random_title, "year": today.year, "month": today.month, "activity_id": sample_activity.id}
+    return {"title": random_title, "activity_id": sample_activity.id}
 
 
 @pytest_asyncio.fixture
 async def persisted_task(async_session: AsyncSession, sample_task: dict, user_id: uuid.UUID) -> ActivityTaskBase:
     """Creates a task in the DB and returns the model with a generated ID. It is a fixed task we can refer back to it
-    due to the created constraints (title, activity_id, month, and year)"""
+    due to the created constraints (title, activity_id, user_id)"""
 
     # 1. Create the model instance from your dictionary fixture
     task = ActivityTaskBase(
-        title=sample_task["title"],
-        year=sample_task["year"],
-        month=sample_task["month"],
-        activity_id=sample_task["activity_id"],
-        user_id=user_id,
+        title=sample_task["title"], activity_id=sample_task["activity_id"], user_id=user_id, updated_at=datetime.now()
     )
     upserted_task = await ActivityTaskBase.upsert_one(
-        async_session, task, ["title", "year", "month", "activity_id"], commit=False
+        async_session, task, ["title", "user_id", "activity_id"], commit=False
     )
     # 2. Add and Flush (not commit) to trigger ID generation in the current transaction
     await async_session.flush()
@@ -108,13 +101,11 @@ async def random_persisted_task(async_session: AsyncSession, random_task: dict, 
     # 1. Create the model instance from your dictionary fixture
     task = ActivityTaskBase(
         title=random_task["title"],
-        year=random_task["year"],
-        month=random_task["month"],
         activity_id=random_task["activity_id"],
         user_id=user_id,
     )
     upserted_task = await ActivityTaskBase.upsert_one(
-        async_session, task, ["title", "year", "month", "activity_id"], commit=False
+        async_session, task, ["title", "activity_id", "user_id"], commit=False
     )
     # 2. Add and Flush (not commit) to trigger ID generation in the current transaction
     await async_session.flush()
@@ -130,9 +121,7 @@ def task_factory(random_title: str, worklog_factory: WorklogFactoryFn):
         activity_id: Optional[uuid.UUID] = None,
         size: Optional[int] = None,
         worklog_size: Optional[int] = None,
-        year: Optional[int] = None,
-        month: Optional[int] = None,
-    ):
+    ) -> List[UpsertActivityTask]:
         if size is None:
             size = 1
 
@@ -143,17 +132,8 @@ def task_factory(random_title: str, worklog_factory: WorklogFactoryFn):
         today = datetime.now()
         task_worklogs: List[WorklogDto] = worklog_factory(size=worklog_size, year=today.year, month=today.month)
 
-        if year is None:
-            year = today.year
-        if month is None:
-            month = today.month
-
         for _ in range(size):
-            tasks.append(
-                UpsertActivityTask(
-                    year=year, month=month, title=random_title, activity_id=activity_id, worklogs=task_worklogs
-                )
-            )
+            tasks.append(UpsertActivityTask(title=random_title, activity_id=activity_id, worklogs=task_worklogs))
 
         return tasks
 

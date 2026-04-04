@@ -1,8 +1,8 @@
 """init_models
 
-Revision ID: c2d9b55b6856
+Revision ID: 7a4e82da4bf5
 Revises: 
-Create Date: 2026-01-07 12:04:48.302897
+Create Date: 2026-04-02 05:49:01.646190
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'c2d9b55b6856'
+revision: str = '7a4e82da4bf5'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -46,7 +46,6 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
     sa.Column('code', sa.String(), nullable=False),
-    sa.Column('expected_hours_monthly', sa.Integer(), nullable=False),
     sa.Column('activity_type_id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -76,17 +75,19 @@ def upgrade() -> None:
     op.create_table('activity_tasks',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
-    sa.Column('activity_id', sa.UUID(), nullable=False),
+    sa.Column('activity_id', sa.UUID(), nullable=True),
+    sa.Column('user_id', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['activity_id'], ['activities.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['activity_id'], ['activities.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('title')
+    sa.UniqueConstraint('title', 'activity_id', name='uq_title_activity_id')
     )
     op.create_table('activity_users',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('user_id', sa.UUID(), nullable=False),
-    sa.Column('activity_id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.UUID(), nullable=True),
+    sa.Column('activity_id', sa.UUID(), nullable=True),
     sa.Column('assigned_by_id', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -99,15 +100,16 @@ def upgrade() -> None:
     op.create_table('worklogs',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('date', sa.Date(), nullable=False),
-    sa.Column('duration', sa.SmallInteger(), nullable=False),
+    sa.Column('duration', sa.Numeric(precision=3, scale=1), nullable=False),
     sa.Column('activity_task_id', sa.UUID(), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.CheckConstraint('duration >= 1 AND duration <= 8'),
-    sa.ForeignKeyConstraint(['activity_task_id'], ['activity_tasks.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['activity_task_id'], ['activity_tasks.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id')
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('activity_task_id', 'user_id', 'date', name='uq_user_activity_task_date')
     )
     # ### end Alembic commands ###
 
