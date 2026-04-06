@@ -63,7 +63,7 @@ class UserJournalDto(BaseModel):
 # Batch Worklog DTOs
 # ==============
 class UpsertActivityTask(BaseModel):
-    # id: Optional[UUID] = Field(default=None)
+    id: Optional[UUID] = Field(default=None)
     title: str = Field(description="Title of the activity task", min_length=3)
     activity_id: UUID = Field(description="Activity which the task belongs to.")
     worklogs: Optional[List["WorklogDto"]] = Field(
