@@ -124,8 +124,6 @@ class TestJournal:
 
         task_batch_dto = task_batch_factory(tasks=created_tasks)
 
-        logger.info(f"TaskBatchDto: {task_batch_dto}")
-
         journal_service = JournalService(session=async_session)
         result = await journal_service.batch_worklog(task_batch_dto, user_id)
 

@@ -172,7 +172,7 @@ async def sample_activity(async_session: AsyncSession, project_activity_type: Ac
 @pytest.fixture
 def random_title():
     fake = Faker()
-    title = fake.sentence(nb_words=3)
+    title = fake.sentence(nb_words=6)
     return title.rstrip(".")
 
 

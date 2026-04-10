@@ -4,14 +4,14 @@ from datetime import datetime
 from typing import Any, List
 from uuid import UUID
 
-from sqlalchemy import and_, delete, exists, func, select, update
+from sqlalchemy import and_, delete, exists, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload, with_loader_criteria
 
 from app.core.exceptions import BadRequestException, UnauthorizedException
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.worklog import WorklogBase
-from app.dto.journal import GetJournalDto, JournalActivity, TaskBatchDto
+from app.dto.journal import GetJournalDto, JournalActivity, TaskBatchDto, UpsertActivityTask
 from app.models import Activity, ActivityTask, ActivityUser, Worklog
 from app.services.base import BaseService
 
@@ -61,9 +61,9 @@ class JournalService(BaseService):
     async def _cleanup_empty_tasks(self, user_id: UUID) -> None:
         """Find any activity tasks for a given user that do not have any worklogs and delete them"""
 
-        subq = exists().where(Worklog.activity_task_id == ActivityTask.id)
+        subq = not_(exists().where(Worklog.activity_task_id == ActivityTask.id))
 
-        stmt = delete(ActivityTask).where(ActivityTask.user_id == user_id).where(~subq)
+        stmt = delete(ActivityTask).where(ActivityTask.user_id == user_id).where(subq)
 
         await self.session.execute(stmt)
 
@@ -83,7 +83,29 @@ class JournalService(BaseService):
             details = ", ".join([f"{r[0]} ({r[1]}h)" for r in errors])
             raise BadRequestException(f"Daily limit exceeded: {details}")
 
-    async def _process_worklogs(self, user_id: UUID, data: TaskBatchDto) -> None:
+    async def _fork_or_upsert_task(self, task: UpsertActivityTask, user_id: UUID) -> ActivityTaskBase:
+        """Attempt to determine create or update the task (upsert). If the client-side intention is an update of current
+        task, then copy (fork) the task and point the worklogs to newly created task"""
+        task_data = ActivityTaskBase(
+            title=task.title, activity_id=task.activity_id, user_id=user_id, updated_at=datetime.now()
+        )
+        index_elements = ["title", "activity_id", "user_id"]
+
+        # upsert the task based on triplet index
+        current_task = await ActivityTaskBase.upsert_one(self.session, task_data, index_elements, commit=False)
+
+        # if the task id exists, then client wishes to update current task, they may also include worklogs
+        if task.id and task.id != current_task.id:
+            worklog_ids = [worklog.id for worklog in task.worklogs if worklog.id]
+
+            if len(worklog_ids) > 0:
+                # MOVE the logs to new task
+                await WorklogBase.update_many_by_whereclause(
+                    self.session, {"activity_task_id": current_task.id}, [Worklog.id.in_(worklog_ids)], commit=False
+                )
+        return current_task
+
+    async def _process_worklogs(self, user_id: UUID, data: TaskBatchDto) -> tuple[list[WorklogBase], set[datetime]]:
         """Go through each task and attempt to update/add/delete to reflect the grid status"""
         tasks = data.tasks
         # Worklogs to deleted
@@ -97,41 +119,7 @@ class JournalService(BaseService):
         upsert_result = []
 
         for task in tasks:
-            task_data = ActivityTaskBase(
-                title=task.title, activity_id=task.activity_id, user_id=user_id, updated_at=datetime.now()
-            )
-
-            index_elements = ["title", "activity_id", "user_id"]
-            field_value = task.title
-            target_field = ActivityTask.title
-            where_clause = [ActivityTask.user_id == user_id]
-
-            if task.id:
-                field_value = task.id
-                target_field = ActivityTask.id
-            else:
-                where_clause.extend([ActivityTask.activity_id == task.activity_id])
-
-            task_found = await ActivityTaskBase.get_one(
-                self.session,
-                field_value,
-                field=target_field,
-                where_clause=where_clause,
-                raise_not_found=False,
-            )
-            is_new_task = task_found is None
-            current_task = await ActivityTaskBase.upsert_one(self.session, task_data, index_elements, commit=False)
-
-            if is_new_task or task_found.id != current_task.id:
-                worklog_ids = [worklog.id for worklog in task.worklogs if worklog.id]
-
-                if len(worklog_ids) > 0:
-                    # MOVE the logs to new task
-                    await self.session.execute(
-                        update(Worklog)
-                        .where(Worklog.id.in_(worklog_ids))
-                        .values(activity_task_id=current_task.id)  # Re-pointing the logs
-                    )
+            current_task = await self._fork_or_upsert_task(task, user_id)
 
             for item in task.worklogs:
                 affected_dates.add(item.date)
