@@ -9,24 +9,39 @@ from app.core.security.jwt import hash_password
 from app.domain.activity import ActivityBase, ActivityUserBase
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.activity_type import ActivityTypeBase
+from app.domain.tenant import TenantBase
 from app.domain.user import UserBase
 
 
-async def seed_admin_user() -> UserBase:
-    data = UserBase(
-        full_name="Admin User",
-        email="admin@example.com",
-        hashed_password=hash_password("123456"),
-        is_active=True,
-        is_admin=True,
-        role=UserRole.ADMIN,
-    )
-
+async def seed_tenants() -> List[TenantBase]:
+    scai_tenant_id = uuid.UUID("8d17597b-55c4-45fc-bf47-2081fbad971a")
+    astek_tenant_id = uuid.UUID("2e5b17e0-1621-4853-a98a-f42867b05a38")
+    data = [
+        TenantBase(id=scai_tenant_id, organization_name="SCAI"),
+        TenantBase(id=astek_tenant_id, organization_name="Astek"),
+    ]
     async with session_manager.session() as session:
-        return await UserBase.upsert_one(session, data, ["email"])
+        return await TenantBase.upsert_many(session, data)
 
 
-async def seed_employee_users() -> List[UserBase]:
+async def seed_admin_user(tenants: List[TenantBase]) -> List[UserBase]:
+    tenant_admins = [
+        UserBase(
+            full_name=f"{tenant.organization_name} Admin",
+            email=f"{tenant.organization_name.lower()}_admin@example.com",
+            hashed_password=hash_password("123456"),
+            is_active=True,
+            is_admin=True,
+            role=UserRole.ADMIN,
+            tenant_id=tenant.id,
+        )
+        for tenant in tenants
+    ]
+    async with session_manager.session() as session:
+        return await UserBase.upsert_many(session, tenant_admins, ["email"])
+
+
+async def seed_employee_users(tenants: List[TenantBase]) -> List[UserBase]:
     jason_limbu = UserBase(
         full_name="Jason Limbu",
         email="jason@example.com",
@@ -35,6 +50,7 @@ async def seed_employee_users() -> List[UserBase]:
         is_admin=False,
         role=UserRole.USER,
         id=uuid.UUID("04026c86-9a31-44ed-a93f-b6ab1f4f8030"),
+        tenant_id=tenants[0].id,
     )
     james_brown = UserBase(
         full_name="James Brown",
@@ -44,6 +60,7 @@ async def seed_employee_users() -> List[UserBase]:
         is_admin=False,
         role=UserRole.USER,
         id=uuid.UUID("f30f1a7b-303d-44ce-bab6-29334ac39539"),
+        tenant_id=tenants[1].id,
     )
     data = [jason_limbu, james_brown]
     index_elements = ["email"]
@@ -64,8 +81,8 @@ async def seed_activity_types() -> List[ActivityTypeBase]:
         return await ActivityTypeBase.upsert_many(session, data)
 
 
-async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[ActivityBase]:
-    project_activity, non_project_activity = activity_types[0], activity_types[1]
+async def seed_activities(activity_types: List[ActivityTypeBase], tenants: List[TenantBase]) -> List[ActivityBase]:
+    project_activity = activity_types[0]
 
     project_activities = [
         ActivityBase(
@@ -73,51 +90,25 @@ async def seed_activities(activity_types: List[ActivityTypeBase]) -> List[Activi
             activity_type_id=project_activity.id,
             title="Saudi Company for Artificial Intelligence",
             code="SCAI-AUG",
-        ),
-        # ActivityBase(
-        #     id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
-        #     activity_type_id=project_activity.id,
-        #     title="Saudi Aramco",
-        #     code="ARMC-HIS",
-        # ),
-        # ActivityBase(
-        #     id=uuid.UUID("bf2678aa-a630-49aa-97f1-332221bf4449"),
-        #     activity_type_id=project_activity.id,
-        #     title="Saudi Aramco",
-        #     code="ARMC-HUG",
-        # ),
-    ]
-
-    non_project_activities = [
-        ActivityBase(
-            id=uuid.UUID("40876b01-943f-487b-9c95-bc799e997025"),
-            activity_type_id=non_project_activity.id,
-            title="OTH - Other",
-            code="oth",
+            tenant_id=tenants[0].id,
         ),
         ActivityBase(
-            id=uuid.UUID("99c50518-0d15-4877-939e-5f8aa0dda520"),
-            activity_type_id=non_project_activity.id,
-            title="Business Development",
-            code="BUS-DEV",
-        ),
-        ActivityBase(
-            id=uuid.UUID("837a9f19-e1cd-48f6-9496-3f22e4183eb9"),
-            activity_type_id=non_project_activity.id,
-            title="Delivery and Program Management",
-            code="DEL-PROG",
+            id=uuid.UUID("d66fdcfc-ed02-49a8-b660-d3720f63ecd2"),
+            activity_type_id=project_activity.id,
+            title="Astek",
+            code="ASTK-HIS",
+            tenant_id=tenants[1].id,
         ),
     ]
 
     async with session_manager.session() as session:
-        created_projet_activities = await ActivityBase.upsert_many(session, project_activities)
-        created_non_project_activities = await ActivityBase.upsert_many(session, non_project_activities)
+        created_project_activities = await ActivityBase.upsert_many(session, project_activities)
 
-    return created_projet_activities, created_non_project_activities
+    return created_project_activities
 
 
 async def seed_emplyee_activities(
-    activities: List[ActivityBase], employees: List[UserBase], admin_id: Optional[uuid.UUID] = None
+    activities: List[ActivityBase], employees: List[UserBase], admins: Optional[List[UserBase]] = None
 ) -> List[ActivityUserBase]:
     data = []
     if len(employees) <= 0 or len(activities) <= 0:
@@ -126,17 +117,22 @@ async def seed_emplyee_activities(
                           ['activities', 'employees'] is empty"
         )
 
+    tenant_admin_map = {admin_user.tenant_id: admin_user.id for admin_user in admins}
+
     for activity in activities:
         for employee in employees:
-            data.append(
-                ActivityUserBase(
-                    id=uuid.uuid4(),
-                    user_id=employee.id,
-                    activity_id=activity.id,
-                    assigned_by_id=admin_id,
+            if activity.tenant_id == employee.tenant_id:
+                admin_id = tenant_admin_map.get(activity.tenant_id)
+                data.append(
+                    ActivityUserBase(
+                        id=uuid.uuid4(),
+                        user_id=employee.id,
+                        activity_id=activity.id,
+                        assigned_by_id=admin_id,
+                        tenant_id=activity.tenant_id,
+                    )
                 )
-            )
-    index_elements = ["user_id", "activity_id"]
+    index_elements = ["user_id", "activity_id", "tenant_id"]
     async with session_manager.session() as session:
         return await ActivityUserBase.upsert_many(session, data, index_elements)
 
@@ -145,14 +141,16 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
     data = []
     for activity in activities:
         for employee in employees:
-            data.append(
-                ActivityTaskBase(
-                    title=f"Task for {activity.code} for employee {employee.full_name}",
-                    user_id=employee.id,
-                    activity_id=activity.id,
-                    updated_at=datetime.now(),
+            if employee.tenant_id == activity.tenant_id:
+                data.append(
+                    ActivityTaskBase(
+                        title=f"Task for {activity.code} for employee {employee.full_name}",
+                        user_id=employee.id,
+                        activity_id=activity.id,
+                        updated_at=datetime.now(),
+                        tenant_id=activity.tenant_id,
+                    )
                 )
-            )
 
     async with session_manager.session() as session:
         index_elements = ["activity_id", "title", "user_id"]
@@ -160,19 +158,22 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
 
 
 async def seed_data():
-    admin = await seed_admin_user()
-    print("Successfully created admin user")
+    tenants = await seed_tenants()
+    print(f"Successfully seeded {len(tenants)} tenants")
 
-    employees = await seed_employee_users()
-    print(f"Successfully created {len(employees)} employees")
+    admins = await seed_admin_user(tenants)
+    print(f"Successfully seeded {len(admins)} admin users")
+
+    employees = await seed_employee_users(tenants)
+    print(f"Successfully seeded {len(employees)} employees")
 
     activity_types = await seed_activity_types()
-    print(f"Successfully created {len(activity_types)} activity types")
+    print(f"Successfully seeded {len(activity_types)} activity types")
 
-    activities, _ = await seed_activities(activity_types)
-    print(f"Successfully created {len(activities)} activities")
+    activities = await seed_activities(activity_types, tenants)
+    print(f"Successfully seeded {len(activities)} activities")
 
-    await seed_emplyee_activities(activities, employees, admin.id)
+    await seed_emplyee_activities(activities, employees, admins)
     print(f"Successfully assigned {len(activities)} activities for {len(employees)} employees")
 
     await seed_employee_tasks(activities, employees)

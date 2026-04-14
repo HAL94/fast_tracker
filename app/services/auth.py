@@ -72,6 +72,7 @@ class AuthService(BaseService):
                     access_token=access_token,
                     expires_at=JwtManager.get_expiry(TokenType.RefreshToken),
                     user_id=found_user.id,
+                    tenant_id=found_user.tenant_id,
                 )
             )
             return UserSession(access_token=access_token, refresh_token=refresh_token, session_id=user_session.id)
@@ -98,7 +99,6 @@ class AuthService(BaseService):
             user_session = await self._session.get_one(
                 self.session, hash_token(rt_token), field=self._session.model.refresh_token_hash, return_as_base=True
             )
-            logger.info(f"User Session: {user_session}")
             if not user_session.is_active:
                 raise credentials_exception
 
@@ -112,6 +112,7 @@ class AuthService(BaseService):
                     access_token=new_access_token,
                     expires_at=JwtManager.get_expiry(TokenType.RefreshToken),
                     user_id=found_user.id,
+                    tenant_id=found_user.tenant_id,
                 )
             )
             return UserSession(

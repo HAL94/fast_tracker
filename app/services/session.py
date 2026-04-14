@@ -21,6 +21,7 @@ class SessionService(BaseService):
                 access_token_hash=hash_token(data.access_token),
                 expires_at=data.expires_at,
                 user_id=data.user_id,
+                tenant_id=data.tenant_id,
             )
             return await self._session.create(self.session, data_base, commit=commit)
         except Exception as e:

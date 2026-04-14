@@ -25,3 +25,4 @@ class SessionBase(BaseModelDatabaseMixin[Session]):
     user_agent: Optional[str] = None
 
     user_id: UUID
+    tenant_id: UUID

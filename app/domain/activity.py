@@ -13,6 +13,7 @@ class ActivityBase(BaseModelDatabaseMixin[Activity]):
     model: ClassVar[Activity] = Activity
 
     id: Optional[UUID] = Field(default=None)
+    tenant_id: UUID
     title: str
     code: str
     activity_type_id: UUID
@@ -34,6 +35,7 @@ class ActivityUserBase(BaseModelDatabaseMixin[ActivityUser]):
 
     id: Optional[UUID] = Field(default=None)
     user_id: UUID
+    tenant_id: UUID
     activity_id: UUID
     created_at: Optional[datetime] = Field(default=None)
     updated_at: Optional[datetime] = Field(default=None)

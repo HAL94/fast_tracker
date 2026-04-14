@@ -1,5 +1,6 @@
 import logging
 from typing import Annotated
+from uuid import UUID
 
 import jwt
 from fastapi import Depends
@@ -26,9 +27,7 @@ AtCookie = Annotated[str, Depends(APIKeyCookie(name=JwtManager.AT_COOKIE_KEY, au
 
 async def get_current_user(token_encoding: AtCookie, session: DbSession) -> UserWithoutPassword:
     try:
-        logger.info("Checking user info")
         token = JwtManager.validate_at_cookie(token_encoding)
-        logger.info(f"JWT TOKEN: {token}")
         payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.ALGORITHM])
         validated_payload = JwtPayload.model_validate(payload)
 
@@ -52,6 +51,9 @@ async def get_current_user(token_encoding: AtCookie, session: DbSession) -> User
         if not user_data.is_active:
             raise UnauthorizedException
 
+        if fetched_session.tenant_id != user_data.tenant_id:
+            raise UnauthorizedException
+
         return UserWithoutPassword.model_validate(user_data)
     except jwt.InvalidTokenError as e:
         logger.info(f"[get_current_user] Error occured: {e}")
@@ -67,6 +69,13 @@ async def get_current_active_user(
 
 
 CurrentUser = Annotated[UserWithoutPassword, Depends(get_current_active_user)]
+
+
+async def get_current_tenant_id(current_user: CurrentUser):
+    return current_user.tenant_id
+
+
+TenantId = Annotated[UUID, Depends(get_current_tenant_id)]
 
 
 class ValidateRole:

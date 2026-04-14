@@ -9,6 +9,7 @@ class CreateSessionDto(BaseModel):
     access_token: str
     expires_at: datetime
     user_id: UUID
+    tenant_id: UUID
 
 
 class LogoutDto(BaseModel):

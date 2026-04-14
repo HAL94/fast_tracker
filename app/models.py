@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Numeric,
     String,
     Text,
@@ -20,6 +21,21 @@ from sqlalchemy.orm import Mapped, WriteOnlyMapped, mapped_column, relationship
 
 from app.constants.roles import UserRole
 from app.core.database import Base
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    organization_name: Mapped[str] = mapped_column(String(512), nullable=False)
+
+    # relations
+    users: WriteOnlyMapped["User"] = relationship(back_populates="tenant")
+    activities: WriteOnlyMapped["Activity"] = relationship(back_populates="tenant")
+    activity_tasks: WriteOnlyMapped["ActivityTask"] = relationship(back_populates="tenant")
+    worklogs: WriteOnlyMapped["Worklog"] = relationship(back_populates="tenant")
+    user_activities: WriteOnlyMapped["ActivityUser"] = relationship(back_populates="tenant")
+    sessions: WriteOnlyMapped["Session"] = relationship(back_populates="tenant")
 
 
 class User(Base):
@@ -33,8 +49,11 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     role: Mapped[str] = mapped_column(String, default=UserRole.USER.value, nullable=False)
 
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+
     # Relations
     sessions: Mapped[List["Session"]] = relationship(back_populates="user", cascade="all, delete")
+    tenant: Mapped[Tenant] = relationship(back_populates="users")
 
     # Activities assigned TO this user
     user_activities: WriteOnlyMapped["ActivityUser"] = relationship(
@@ -83,11 +102,15 @@ class Session(Base):
     )
     user: Mapped["User"] = relationship(back_populates="sessions")
 
+    tenant_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"))
+    tenant: Mapped[Tenant] = relationship(back_populates="sessions")
+
 
 class ActivityType(Base):
     __tablename__ = "activity_types"
 
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # For now types should be unique system wide
     title: Mapped[str] = mapped_column(VARCHAR(255), nullable=False, unique=True)
 
     activities: Mapped[List["Activity"]] = relationship(back_populates="activity_type")
@@ -104,6 +127,9 @@ class Activity(Base):
     activity_type_id: Mapped[UUID] = mapped_column(ForeignKey("activity_types.id", ondelete="SET NULL"), nullable=False)
     activity_type: Mapped[ActivityType] = relationship(back_populates="activities")
 
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship(back_populates="activities")
+
     user_activities: WriteOnlyMapped["ActivityUser"] = relationship(back_populates="activity")
     users: WriteOnlyMapped["User"] = relationship(
         secondary="activity_users",
@@ -113,6 +139,11 @@ class Activity(Base):
     )
 
     tasks: Mapped[List["ActivityTask"]] = relationship(back_populates="activity", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("code", "tenant_id", name="uq_activity_code_tenant"),
+        Index("ix_activity_tenant_id", "tenant_id"),
+    )
 
 
 class ActivityTask(Base):
@@ -128,11 +159,18 @@ class ActivityTask(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     user: Mapped[User] = relationship(back_populates="tasks")
 
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship(back_populates="activity_tasks")
+
     worklogs: Mapped[List["Worklog"]] = relationship(
         back_populates="activity_task", cascade="all, delete-orphan", order_by="Worklog.date"
     )
 
-    __table_args__ = (UniqueConstraint("title", "activity_id", "user_id", name="uq_title_activity_id_user_id"),)
+    __table_args__ = (
+        UniqueConstraint("title", "activity_id", "user_id", name="uq_title_activity_id_user_id"),
+        # Optimized for: select * from activity_tasks where tenant_id = X and user_id = Y
+        Index("ix_task_tenant_user", "tenant_id", "user_id"),
+    )
 
 
 class Worklog(Base):
@@ -149,9 +187,18 @@ class Worklog(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     user: Mapped[User] = relationship(back_populates="worklogs")
 
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship(back_populates="worklogs")
+
     __table_args__ = (
         CheckConstraint("duration >= 1 AND duration <= 8"),
         UniqueConstraint("activity_task_id", "user_id", "date", name="uq_user_activity_task_date"),
+        # CRITICAL for the Grid: select ... where user_id = X and date between Y and Z
+        # Including tenant_id here acts as a security anchor
+        Index("ix_worklog_tenant_user_data", "tenant_id", "user_id", "date"),
+        # CRITICAL for Admin Reporting: select ... where tenant_id = X and date between Y and Z
+        # Allows for fast company-wide monthly reports
+        Index("ix_worklog_tenant_date", "tenant_id", "date"),
     )
 
 
@@ -161,15 +208,18 @@ class ActivityUser(Base):
     id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
 
     # Relations
-    user_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     user: Mapped[User] = relationship(back_populates="user_activities", foreign_keys=[user_id])
 
-    activity_id: Mapped[Optional[UUID]] = mapped_column(ForeignKey("activities.id", ondelete="SET NULL"))
+    activity_id: Mapped[UUID] = mapped_column(ForeignKey("activities.id"))
     activity: Mapped[Activity] = relationship(back_populates="user_activities")
 
-    assigned_by_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id"))
+    tenant: Mapped[Tenant] = relationship(back_populates="user_activities")
+
+    assigned_by_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     # Define the relationship
     assigned_by: Mapped["User"] = relationship(
         foreign_keys=[assigned_by_id]  # Specify this FK to avoid ambiguity
     )
-    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_user_activity"),)
+    __table_args__ = (UniqueConstraint("tenant_id", "user_id", "activity_id", name="uq_tenant_user_activity"),)

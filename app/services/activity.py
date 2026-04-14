@@ -14,7 +14,9 @@ from app.domain.user import UserWithActivities
 from app.dto.activity import (
     CreateActivityDto,
     CreateActivityTaskDto,
+    CreateActivityWithTenantDto,
     CreateUserActivityDto,
+    CreateUserActivityWithTenantDto,
 )
 from app.services.base import BaseService
 
@@ -29,14 +31,14 @@ class ActivityService(BaseService):
         """Get all activity types"""
         return await ActivityTypeBase.get_all(self.session)
 
-    async def get_all_activities(self) -> List[ActivityBase]:
-        return await ActivityBase.get_all(self.session)
+    async def get_all_activities(self, tenant_id: UUID) -> List[ActivityBase]:
+        return await ActivityBase.get_all(self.session, where_clause=[ActivityBase.model.tenant_id == tenant_id])
 
-    async def create_activity(self, data: CreateActivityDto) -> ActivityBase:
+    async def create_activity(self, data: CreateActivityWithTenantDto) -> ActivityBase:
         """Create an activity item, ADMIN ONLY"""
         return await ActivityBase.create(self.session, data)
 
-    async def assign_user_to_activity_item(self, data: CreateUserActivityDto) -> ActivityUserBase:
+    async def assign_user_to_activity_item(self, data: CreateUserActivityWithTenantDto) -> ActivityUserBase:
         """Assign the employee to a specific activity so they can track their hours on it, ADMIN ONLY"""
         return await ActivityUserBase.create(self.session, data)
 

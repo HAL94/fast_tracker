@@ -23,9 +23,11 @@ class JournalService(BaseService):
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def _validate_activities(self, activities: set[UUID], user_id: UUID) -> None:
+    async def _validate_activities(self, activities: set[UUID], user_id: UUID, tenant_id: UUID) -> None:
         stmt = select(ActivityUser.activity_id).where(
-            ActivityUser.user_id == user_id, ActivityUser.activity_id.in_(activities)
+            ActivityUser.user_id == user_id,
+            ActivityUser.tenant_id == tenant_id,
+            ActivityUser.activity_id.in_(activities),
         )
 
         result = (await self.session.execute(stmt)).scalars().all()
@@ -34,9 +36,9 @@ class JournalService(BaseService):
         if activities - result_set:
             raise UnauthorizedException(message="Not allowed to access activity resource")
 
-    async def _validate_tasks(self, tasks: set[UUID], user_id: UUID) -> dict[str, Any]:
+    async def _validate_tasks(self, tasks: set[UUID], user_id: UUID, tenant_id: UUID) -> dict[str, Any]:
         stmt = select(ActivityTask.id, ActivityTask.activity_id).where(
-            ActivityTask.user_id == user_id, ActivityTask.id.in_(tasks)
+            ActivityTask.user_id == user_id, ActivityTask.tenant_id == tenant_id, ActivityTask.id.in_(tasks)
         )
 
         result = (await self.session.execute(stmt)).all()
@@ -50,28 +52,32 @@ class JournalService(BaseService):
 
         return task_activity_map
 
-    async def _validate_worklogs(self, worklogs: set[UUID], user_id: UUID) -> None:
-        stmt = select(Worklog.id).where(Worklog.user_id == user_id, Worklog.id.in_(worklogs))
+    async def _validate_worklogs(self, worklogs: set[UUID], user_id: UUID, tenant_id: UUID) -> None:
+        stmt = select(Worklog.id).where(
+            Worklog.user_id == user_id, Worklog.tenant_id == tenant_id, Worklog.id.in_(worklogs)
+        )
 
         result_set = set((await self.session.execute(stmt)).scalars().all())
 
         if worklogs - result_set:
             raise UnauthorizedException("Not allowed to access worklog resource")
 
-    async def _cleanup_empty_tasks(self, user_id: UUID) -> None:
+    async def _cleanup_empty_tasks(self, user_id: UUID, tenant_id: UUID) -> None:
         """Find any activity tasks for a given user that do not have any worklogs and delete them"""
 
         subq = not_(exists().where(Worklog.activity_task_id == ActivityTask.id))
 
-        stmt = delete(ActivityTask).where(ActivityTask.user_id == user_id).where(subq)
+        stmt = (
+            delete(ActivityTask).where(ActivityTask.user_id == user_id, ActivityTask.tenant_id == tenant_id).where(subq)
+        )
 
         await self.session.execute(stmt)
 
-    async def _validate_worklogs_8_hours(self, user_id: UUID, dates: set[datetime]) -> None:
+    async def _validate_worklogs_8_hours(self, user_id: UUID, dates: set[datetime], tenant_id: UUID) -> None:
         """Validate if the worklogs for the given user, do not exceed 8 hours when grouped by day"""
         stmt = (
             select(Worklog.date, func.sum(Worklog.duration))
-            .where(Worklog.user_id == user_id)
+            .where(Worklog.user_id == user_id, Worklog.tenant_id == tenant_id)
             .where(Worklog.date.in_(dates))
             .group_by(Worklog.date)
             .having(func.sum(Worklog.duration) > 8)
@@ -83,11 +89,15 @@ class JournalService(BaseService):
             details = ", ".join([f"{r[0]} ({r[1]}h)" for r in errors])
             raise BadRequestException(f"Daily limit exceeded: {details}")
 
-    async def _fork_or_upsert_task(self, task: UpsertActivityTask, user_id: UUID) -> ActivityTaskBase:
+    async def _fork_or_upsert_task(self, task: UpsertActivityTask, user_id: UUID, tenant_id: UUID) -> ActivityTaskBase:
         """Attempt to determine create or update the task (upsert). If the client-side intention is an update of current
         task, then copy (fork) the task and point the worklogs to newly created task"""
         task_data = ActivityTaskBase(
-            title=task.title, activity_id=task.activity_id, user_id=user_id, updated_at=datetime.now()
+            title=task.title,
+            activity_id=task.activity_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            updated_at=datetime.now(),
         )
         index_elements = ["title", "activity_id", "user_id"]
 
@@ -105,7 +115,9 @@ class JournalService(BaseService):
                 )
         return current_task
 
-    async def _process_worklogs(self, user_id: UUID, data: TaskBatchDto) -> tuple[list[WorklogBase], set[datetime]]:
+    async def _process_worklogs(
+        self, user_id: UUID, data: TaskBatchDto, tenant_id: UUID
+    ) -> tuple[list[WorklogBase], set[datetime]]:
         """Go through each task and attempt to update/add/delete to reflect the grid status"""
         tasks = data.tasks
         # Worklogs to deleted
@@ -119,7 +131,7 @@ class JournalService(BaseService):
         upsert_result = []
 
         for task in tasks:
-            current_task = await self._fork_or_upsert_task(task, user_id)
+            current_task = await self._fork_or_upsert_task(task, user_id, tenant_id)
 
             for item in task.worklogs:
                 affected_dates.add(item.date)
@@ -130,6 +142,7 @@ class JournalService(BaseService):
                     duration=item.duration,
                     activity_task_id=current_task.id,
                     user_id=user_id,
+                    tenant_id=tenant_id,
                 )
                 if worklog_data.id and worklog_data.duration is None:
                     to_delete.append(worklog_data)
@@ -143,22 +156,22 @@ class JournalService(BaseService):
 
         return upsert_result, affected_dates
 
-    async def batch_worklog(self, data: TaskBatchDto, user_id: UUID) -> List[WorklogBase]:
+    async def batch_worklog(self, data: TaskBatchDto, user_id: UUID, tenant_id: UUID) -> List[WorklogBase]:
         """An employee will record their time (hours) spent on given tasks"""
         activity_ids: set[UUID] = {task.activity_id for task in data.tasks}
         worklogs_ids: set[UUID] = {worklog.id for task in data.tasks for worklog in task.worklogs if worklog.id}
         task_ids: set[UUID] = {task.id for task in data.tasks if task.id}
 
-        await self._validate_activities(activity_ids, user_id)
-        await self._validate_tasks(task_ids, user_id)
-        await self._validate_worklogs(worklogs_ids, user_id)
+        await self._validate_activities(activity_ids, user_id, tenant_id)
+        await self._validate_tasks(task_ids, user_id, tenant_id)
+        await self._validate_worklogs(worklogs_ids, user_id, tenant_id)
 
-        upsert_result, affected_dates = await self._process_worklogs(user_id, data)
+        upsert_result, affected_dates = await self._process_worklogs(user_id, data, tenant_id)
 
         await self.session.flush()
 
-        await self._cleanup_empty_tasks(user_id=user_id)
-        await self._validate_worklogs_8_hours(user_id, affected_dates)
+        await self._cleanup_empty_tasks(user_id=user_id, tenant_id=tenant_id)
+        await self._validate_worklogs_8_hours(user_id, affected_dates, tenant_id)
 
         await self.session.commit()
         logger.info(f"[JournalService]: Dates checked against: {affected_dates}")
@@ -166,12 +179,16 @@ class JournalService(BaseService):
 
         return upsert_result
 
-    async def get_journal(self, data: GetJournalDto, user_id: UUID) -> List[JournalActivity]:
+    async def get_journal(self, data: GetJournalDto, user_id: UUID, tenant_id: UUID) -> List[JournalActivity]:
         try:
             stmt = (
                 select(Activity)
                 .join(Activity.user_activities)
-                .where(ActivityUser.user_id == user_id)
+                .where(
+                    Activity.tenant_id == tenant_id,
+                    ActivityUser.user_id == user_id,
+                    ActivityUser.tenant_id == tenant_id,
+                )
                 .options(
                     joinedload(Activity.activity_type),
                     selectinload(Activity.tasks).selectinload(ActivityTask.worklogs),
@@ -179,11 +196,17 @@ class JournalService(BaseService):
                         ActivityTask,
                         and_(
                             ActivityTask.user_id == user_id,
+                            ActivityTask.tenant_id == tenant_id,
                             ActivityTask.worklogs.any(Worklog.date.between(data.start_date, data.end_date)),
                         ),
                     ),
                     with_loader_criteria(
-                        Worklog, and_(Worklog.user_id == user_id, Worklog.date.between(data.start_date, data.end_date))
+                        Worklog,
+                        and_(
+                            Worklog.user_id == user_id,
+                            Worklog.tenant_id == tenant_id,
+                            Worklog.date.between(data.start_date, data.end_date),
+                        ),
                     ),
                 )
             )

@@ -25,7 +25,7 @@ async def get_journal(
     intended operation. Response model are yet to be fully determined.
     """
     journal_service = JournalService(session)
-    result = await journal_service.get_journal(query, user.id)
+    result = await journal_service.get_journal(query, user.id, user.tenant_id)
     return AppResponse(data=result)
 
 
@@ -35,5 +35,5 @@ async def get_journal(
 async def worklog_batch(session: DbSession, user: CurrentUser, data: TaskBatchDto) -> AppResponse[List[WorklogBase]]:
     """Add/update/delete worklog batch for multiple activities, core endpoint for employee tracking their hours"""
     journal_service = JournalService(session)
-    worklogs = await journal_service.batch_worklog(data, user.id)
+    worklogs = await journal_service.batch_worklog(data, user.id, user.tenant_id)
     return AppResponse(data=worklogs)

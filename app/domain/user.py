@@ -14,6 +14,7 @@ class UserBase(BaseModelDatabaseMixin[User]):
     model: ClassVar[User] = User
 
     id: Optional[UUID] = None
+    tenant_id: UUID
     full_name: str
     email: str
     hashed_password: str

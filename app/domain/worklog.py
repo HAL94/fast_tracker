@@ -16,3 +16,4 @@ class WorklogBase(BaseModelDatabaseMixin[Worklog]):
     duration: Optional[float] = None
     activity_task_id: UUID
     user_id: UUID
+    tenant_id: UUID

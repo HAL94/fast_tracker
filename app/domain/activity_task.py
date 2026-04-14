@@ -16,6 +16,7 @@ class ActivityTaskBase(BaseModelDatabaseMixin[ActivityTask]):
     title: str
     activity_id: UUID
     user_id: UUID
+    tenant_id: UUID
     updated_at: datetime = Field(default=datetime.now())
 
 
