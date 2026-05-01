@@ -4,11 +4,11 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.core.database.mixin import BaseModelDatabaseMixin
+from app.domain.base import BaseDomain
 from app.models import Session
 
 
-class SessionBase(BaseModelDatabaseMixin[Session]):
+class SessionBase(BaseDomain[Session]):
     model: ClassVar[type[Session]] = Session
 
     id: Optional[UUID] = Field(default=None)

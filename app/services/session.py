@@ -3,16 +3,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security.jwt import hash_token
 from app.domain.session import SessionBase
 from app.dto.session import CreateSessionDto
+from app.repositories.session_repository import SessionRepository
 from app.services.base import BaseService
 
 
 class SessionService(BaseService):
     def __init__(self, session: AsyncSession):
         super().__init__(session=session)
-        self._session = SessionBase
+        self._session_repo = SessionRepository(session=session)
 
-    def _get_model(self):
-        return self._session
+    async def get_session_by_rt_hash(self, rt_hash: str):
+        try:
+            return await self._session_repo.get_one([SessionBase.model.refresh_token_hash == rt_hash])
+        except Exception as e:
+            raise e
 
     async def create_session(self, data: CreateSessionDto, *, commit: bool = True) -> SessionBase:
         try:
@@ -23,19 +27,17 @@ class SessionService(BaseService):
                 user_id=data.user_id,
                 tenant_id=data.tenant_id,
             )
-            return await self._session.create(self.session, data_base, commit=commit)
+            return await self._session_repo.create_one(data_base, commit=commit)
         except Exception as e:
             raise e
 
     async def logout_from_session(self, refresh_token: str) -> None:
         try:
-            session = await self._session.get_one(
-                self.session,
-                hash_token(refresh_token),
-                field=self._session.model.refresh_token_hash,
-                return_as_base=True,
-            )
+            rt_hash = hash_token(refresh_token)
+            session = await self.get_session_by_rt_hash(rt_hash)
             session.is_active = False
-            await self.session.commit()
+
+            session_by_rt_hash = SessionBase.model.refresh_token_hash == rt_hash
+            await self._session_repo.update(session, [session_by_rt_hash], commit=True)
         except Exception:
             return None

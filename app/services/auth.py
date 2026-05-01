@@ -4,13 +4,13 @@ import traceback
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AlreadyExistException, UnauthorizedException
-from app.core.security.jwt import JwtManager, hash_password, hash_token, verify_password
+from app.core.exceptions import UnauthorizedException
+from app.core.security.jwt import JwtManager, hash_token, verify_password
 from app.core.security.schema import JwtPayload, TokenType
-from app.domain.session import SessionBase
-from app.domain.user import UserBase, UserWithoutPassword
-from app.dto.auth import LoginUserDto, RegisterUserDto, UserSession
+from app.domain.user import UserBase
+from app.dto.auth import LoginUserDto, UserSession
 from app.dto.session import CreateSessionDto
+from app.repositories.user_repository import UserRepository
 from app.services.base import BaseService
 from app.services.session import SessionService
 
@@ -21,42 +21,12 @@ logger.setLevel(logging.INFO)
 class AuthService(BaseService):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
-        self._user = UserBase
-        self._user_without_pw = UserWithoutPassword
-        self._session = SessionBase
-        self._session_service = SessionService(session=session)
-
-    def _get_model(self) -> type[UserBase]:
-        """Return the model class this service works with."""
-        return self._user
-
-    async def register(self, data: RegisterUserDto) -> UserWithoutPassword:
-        try:
-            # verify if exists, will throw if not by default
-            found_user = await self._user.get_one(
-                self.session, data.email, field=self._user.model.email, raise_not_found=False
-            )
-
-            if found_user:
-                raise AlreadyExistException
-
-            hashed_password = hash_password(data.password)
-            create_user = UserBase(
-                full_name=data.full_name,
-                email=data.email,
-                hashed_password=hashed_password,
-            )
-
-            result = await self._user.create(self.session, create_user)
-
-            return self._user_without_pw.model_validate(result)
-        except Exception as e:
-            logger.info(f"[AuthService-register]: {e}")
-            raise e
+        self._user_repo = UserRepository(session)
+        self._session_service = SessionService(session)
 
     async def login(self, data: LoginUserDto) -> UserSession:
         try:
-            found_user: UserBase = await self._user.get_one(self.session, data.email, field=self._user.model.email)
+            found_user: UserBase = await self._user_repo.get_one([UserBase.model.email == data.email])
 
             is_match = verify_password(data.password, found_user.hashed_password)
 
@@ -94,11 +64,9 @@ class AuthService(BaseService):
                 raise credentials_exception
 
             email = jwt_payload.sub
-            found_user = await self._user.get_one(self.session, email, field=self._user.model.email)
+            found_user = await self._user_repo.get_one([email == UserBase.model.email])
 
-            user_session = await self._session.get_one(
-                self.session, hash_token(rt_token), field=self._session.model.refresh_token_hash, return_as_base=True
-            )
+            user_session = await self._session_service.get_session_by_rt_hash(hash_token(rt_token))
             if not user_session.is_active:
                 raise credentials_exception
 

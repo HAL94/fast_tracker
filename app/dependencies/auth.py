@@ -14,6 +14,8 @@ from app.core.security.schema import JwtPayload, TokenType
 from app.dependencies.db_session import DbSession
 from app.domain.session import SessionBase
 from app.domain.user import UserBase, UserWithoutPassword
+from app.repositories.session_repository import SessionRepository
+from app.repositories.user_repository import UserRepository
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
@@ -40,14 +42,16 @@ async def get_current_user(token_encoding: AtCookie, session: DbSession) -> User
         if not email:
             raise UnauthorizedException
 
-        fetched_session = await SessionBase.get_one(
-            session, hash_token(token), field=SessionBase.model.access_token_hash
-        )
+        session_repo = SessionRepository(session)
+        session_by_at_hash = [hash_token(token) == SessionBase.model.access_token_hash]
+        fetched_session = await session_repo.get_one_or_none(session_by_at_hash)
 
         if not fetched_session.is_active:
             raise UnauthorizedException
 
-        user_data = await UserBase.get_one(session, email, field=UserBase.model.email)
+        user_repo = UserRepository(session)
+        user_by_email = [UserBase.model.email == email]
+        user_data = await user_repo.get_one(user_by_email)
         if not user_data.is_active:
             raise UnauthorizedException
 

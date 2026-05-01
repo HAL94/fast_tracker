@@ -5,12 +5,12 @@ from pydantic import Field
 from sqlalchemy.orm import selectinload
 
 from app.constants.roles import UserRole
-from app.core.database.mixin import BaseModelDatabaseMixin
 from app.domain.activity import ActivityWithType
+from app.domain.base import BaseDomain
 from app.models import Activity, User
 
 
-class UserBase(BaseModelDatabaseMixin[User]):
+class UserBase(BaseDomain[User]):
     model: ClassVar[User] = User
 
     id: Optional[UUID] = None
@@ -23,7 +23,7 @@ class UserBase(BaseModelDatabaseMixin[User]):
     role: UserRole = UserRole.USER
 
 
-class UserWithActivities(BaseModelDatabaseMixin[User]):
+class UserWithActivities(BaseDomain[User]):
     model: ClassVar[User] = User
 
     @classmethod

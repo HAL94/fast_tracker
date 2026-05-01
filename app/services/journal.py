@@ -1,93 +1,25 @@
 import logging
 from datetime import date as Date
 from datetime import datetime
-from typing import Any, List
+from typing import List
 from uuid import UUID
 
-from sqlalchemy import and_, delete, exists, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload, selectinload, with_loader_criteria
 
-from app.core.exceptions import BadRequestException, UnauthorizedException
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.worklog import WorklogBase
 from app.dto.journal import GetJournalDto, JournalActivity, TaskBatchDto, UpsertActivityTask
-from app.models import Activity, ActivityTask, ActivityUser, Worklog
+from app.models import Worklog
+from app.repositories.journal_repository import JournalRepository
 from app.services.base import BaseService
 
-logger = logging.getLogger("uvicorn")
+logger = logging.getLogger("uvicorn.info")
 logger.setLevel(logging.INFO)
 
 
 class JournalService(BaseService):
     def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def _validate_activities(self, activities: set[UUID], user_id: UUID, tenant_id: UUID) -> None:
-        stmt = select(ActivityUser.activity_id).where(
-            ActivityUser.user_id == user_id,
-            ActivityUser.tenant_id == tenant_id,
-            ActivityUser.activity_id.in_(activities),
-        )
-
-        result = (await self.session.execute(stmt)).scalars().all()
-        result_set = set(result)
-
-        if activities - result_set:
-            raise UnauthorizedException(message="Not allowed to access activity resource")
-
-    async def _validate_tasks(self, tasks: set[UUID], user_id: UUID, tenant_id: UUID) -> dict[str, Any]:
-        stmt = select(ActivityTask.id, ActivityTask.activity_id).where(
-            ActivityTask.user_id == user_id, ActivityTask.tenant_id == tenant_id, ActivityTask.id.in_(tasks)
-        )
-
-        result = (await self.session.execute(stmt)).all()
-
-        task_activity_map: dict[UUID, UUID] = {row[0]: row[1] for row in result}
-
-        logger.info(f"tasks: {tasks}, task_map: {task_activity_map}")
-
-        if tasks - set(task_activity_map.keys()):
-            raise UnauthorizedException("Not allowed to access task resource")
-
-        return task_activity_map
-
-    async def _validate_worklogs(self, worklogs: set[UUID], user_id: UUID, tenant_id: UUID) -> None:
-        stmt = select(Worklog.id).where(
-            Worklog.user_id == user_id, Worklog.tenant_id == tenant_id, Worklog.id.in_(worklogs)
-        )
-
-        result_set = set((await self.session.execute(stmt)).scalars().all())
-
-        if worklogs - result_set:
-            raise UnauthorizedException("Not allowed to access worklog resource")
-
-    async def _cleanup_empty_tasks(self, user_id: UUID, tenant_id: UUID) -> None:
-        """Find any activity tasks for a given user that do not have any worklogs and delete them"""
-
-        subq = not_(exists().where(Worklog.activity_task_id == ActivityTask.id))
-
-        stmt = (
-            delete(ActivityTask).where(ActivityTask.user_id == user_id, ActivityTask.tenant_id == tenant_id).where(subq)
-        )
-
-        await self.session.execute(stmt)
-
-    async def _validate_worklogs_8_hours(self, user_id: UUID, dates: set[datetime], tenant_id: UUID) -> None:
-        """Validate if the worklogs for the given user, do not exceed 8 hours when grouped by day"""
-        stmt = (
-            select(Worklog.date, func.sum(Worklog.duration))
-            .where(Worklog.user_id == user_id, Worklog.tenant_id == tenant_id)
-            .where(Worklog.date.in_(dates))
-            .group_by(Worklog.date)
-            .having(func.sum(Worklog.duration) > 8)
-        )
-        result = await self.session.execute(stmt)
-        errors = result.all()
-
-        if errors:
-            details = ", ".join([f"{r[0]} ({r[1]}h)" for r in errors])
-            raise BadRequestException(f"Daily limit exceeded: {details}")
+        self._journal_repo = JournalRepository(session=session)
 
     async def _fork_or_upsert_task(self, task: UpsertActivityTask, user_id: UUID, tenant_id: UUID) -> ActivityTaskBase:
         """Attempt to determine create or update the task (upsert). If the client-side intention is an update of current
@@ -102,7 +34,9 @@ class JournalService(BaseService):
         index_elements = ["title", "activity_id", "user_id"]
 
         # upsert the task based on triplet index
-        current_task = await ActivityTaskBase.upsert_one(self.session, task_data, index_elements, commit=False)
+        task_repo = self._journal_repo.get_task_repository()
+        task_upsert_results = await task_repo.upsert([task_data], index_elements)
+        current_task = task_upsert_results[0]
 
         # if the task id exists, then client wishes to update current task, they may also include worklogs
         if task.id and task.id != current_task.id:
@@ -110,9 +44,8 @@ class JournalService(BaseService):
 
             if len(worklog_ids) > 0:
                 # MOVE the logs to new task
-                await WorklogBase.update_many_by_whereclause(
-                    self.session, {"activity_task_id": current_task.id}, [Worklog.id.in_(worklog_ids)], commit=False
-                )
+                worklog_repo = self._journal_repo.get_worklog_repository()
+                await worklog_repo.update({"activity_task_id": current_task.id}, [Worklog.id.in_(worklog_ids)])
         return current_task
 
     async def _process_worklogs(
@@ -149,10 +82,9 @@ class JournalService(BaseService):
                 else:
                     to_upsert.append(worklog_data)
 
-        await WorklogBase.delete_many(self.session, [Worklog.id.in_([item.id for item in to_delete])], commit=False)
-        upsert_result = await WorklogBase.upsert_many(
-            self.session, to_upsert, ["activity_task_id", "date", "user_id"], commit=False
-        )
+        worklog_repo = self._journal_repo.get_worklog_repository()
+        await worklog_repo.delete([Worklog.id.in_([item.id for item in to_delete])])
+        upsert_result = await worklog_repo.upsert(to_upsert, ["activity_task_id", "date", "user_id"])
 
         return upsert_result, affected_dates
 
@@ -162,55 +94,22 @@ class JournalService(BaseService):
         worklogs_ids: set[UUID] = {worklog.id for task in data.tasks for worklog in task.worklogs if worklog.id}
         task_ids: set[UUID] = {task.id for task in data.tasks if task.id}
 
-        await self._validate_activities(activity_ids, user_id, tenant_id)
-        await self._validate_tasks(task_ids, user_id, tenant_id)
-        await self._validate_worklogs(worklogs_ids, user_id, tenant_id)
+        await self._journal_repo.validate_activities(activity_ids, user_id, tenant_id)
+        await self._journal_repo.validate_tasks(task_ids, user_id, tenant_id)
+        await self._journal_repo.validate_worklogs(worklogs_ids, user_id, tenant_id)
 
         upsert_result, affected_dates = await self._process_worklogs(user_id, data, tenant_id)
 
-        await self.session.flush()
+        await self._journal_repo.session.flush()
 
-        await self._cleanup_empty_tasks(user_id=user_id, tenant_id=tenant_id)
-        await self._validate_worklogs_8_hours(user_id, affected_dates, tenant_id)
+        await self._journal_repo.cleanup_empty_tasks(user_id, tenant_id)
+        await self._journal_repo.validate_daily_worklog_hours(user_id, affected_dates, tenant_id)
 
-        await self.session.commit()
+        await self._journal_repo.session.commit()
         logger.info(f"[JournalService]: Dates checked against: {affected_dates}")
         logger.info(f"[JournalService]: Worklog processing done: Upserted {len(upsert_result)} records.")
 
         return upsert_result
 
     async def get_journal(self, data: GetJournalDto, user_id: UUID, tenant_id: UUID) -> List[JournalActivity]:
-        try:
-            stmt = (
-                select(Activity)
-                .join(Activity.user_activities)
-                .where(
-                    Activity.tenant_id == tenant_id,
-                    ActivityUser.user_id == user_id,
-                    ActivityUser.tenant_id == tenant_id,
-                )
-                .options(
-                    joinedload(Activity.activity_type),
-                    selectinload(Activity.tasks).selectinload(ActivityTask.worklogs),
-                    with_loader_criteria(
-                        ActivityTask,
-                        and_(
-                            ActivityTask.user_id == user_id,
-                            ActivityTask.tenant_id == tenant_id,
-                            ActivityTask.worklogs.any(Worklog.date.between(data.start_date, data.end_date)),
-                        ),
-                    ),
-                    with_loader_criteria(
-                        Worklog,
-                        and_(
-                            Worklog.user_id == user_id,
-                            Worklog.tenant_id == tenant_id,
-                            Worklog.date.between(data.start_date, data.end_date),
-                        ),
-                    ),
-                )
-            )
-            result = (await self.session.scalars(stmt)).all()
-            return [JournalActivity.from_activity_model(item) for item in result]
-        except Exception as e:
-            raise e
+        return await self._journal_repo.get_journal(data, user_id, tenant_id)

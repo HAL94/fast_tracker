@@ -138,7 +138,9 @@ class Activity(Base):
         foreign_keys="[ActivityUser.user_id, ActivityUser.activity_id]",
     )
 
-    tasks: Mapped[List["ActivityTask"]] = relationship(back_populates="activity", cascade="all, delete-orphan")
+    tasks: Mapped[List["ActivityTask"]] = relationship(
+        back_populates="activity", cascade="all, delete-orphan", order_by="ActivityTask.title.asc()"
+    )
 
     __table_args__ = (
         UniqueConstraint("code", "tenant_id", name="uq_activity_code_tenant"),

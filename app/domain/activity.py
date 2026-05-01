@@ -4,12 +4,12 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.core.database.mixin import BaseModelDatabaseMixin
 from app.domain.activity_type import ActivityTypeBase
+from app.domain.base import BaseDomain
 from app.models import Activity, ActivityUser
 
 
-class ActivityBase(BaseModelDatabaseMixin[Activity]):
+class ActivityBase(BaseDomain[Activity]):
     model: ClassVar[Activity] = Activity
 
     id: Optional[UUID] = Field(default=None)
@@ -25,7 +25,7 @@ class ActivityWithType(ActivityBase):
     activity_type: ActivityTypeBase
 
 
-class ActivityUserBase(BaseModelDatabaseMixin[ActivityUser]):
+class ActivityUserBase(BaseDomain[ActivityUser]):
     """
     A link between activity items and users.
     Many users could be doing the same project activity

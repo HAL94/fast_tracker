@@ -4,11 +4,11 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.core.database.mixin import BaseModelDatabaseMixin
+from app.domain.base import BaseDomain
 from app.models import Worklog
 
 
-class WorklogBase(BaseModelDatabaseMixin[Worklog]):
+class WorklogBase(BaseDomain[Worklog]):
     model: ClassVar[Worklog] = Worklog
 
     id: Optional[UUID] = Field(default=None)

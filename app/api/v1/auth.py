@@ -9,7 +9,7 @@ from app.core.security.jwt import JwtManager
 from app.dependencies.auth import CurrentUser, RtCookie
 from app.dependencies.db_session import DbSession
 from app.domain.user import UserWithoutPassword
-from app.dto.auth import LoginUserDto, RegisterUserDto, UserSession
+from app.dto.auth import LoginUserDto, UserSession
 from app.services.auth import AuthService
 from app.services.session import SessionService
 
@@ -37,16 +37,6 @@ async def login_user(
     except Exception as e:
         raise HTTPException(status_code=500, detail="Something went wrong") from e
 
-
-@auth_router.post("/register", response_model=AppResponse[UserWithoutPassword])
-async def register_user(body: RegisterUserDto, session: DbSession) -> AppResponse[UserWithoutPassword]:
-    """Register a new user."""
-    try:
-        auth_service = AuthService(session=session)
-        result = await auth_service.register(body)
-        return AppResponse(data=result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Something went wrong") from e
 
 
 @auth_router.get("/me", response_model=AppResponse[UserWithoutPassword])

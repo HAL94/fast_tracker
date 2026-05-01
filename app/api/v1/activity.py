@@ -1,9 +1,8 @@
-from typing import List
-
 from fastapi import APIRouter, Depends
 
 from app.constants.roles import UserRole
 from app.core.exceptions import BadRequestException, IntegrityException
+from app.core.pagination import PaginatedResult
 from app.core.schema import AppResponse
 from app.dependencies.auth import CurrentUser, TenantId, ValidateRole
 from app.dependencies.db_session import DbSession
@@ -23,9 +22,9 @@ activity_router = APIRouter(prefix="/activity", tags=["Activities"])
 
 
 @activity_router.get(
-    "/", dependencies=[Depends(ValidateRole(UserRole.ADMIN))], response_model=AppResponse[List[ActivityBase]]
+    "/", dependencies=[Depends(ValidateRole(UserRole.ADMIN))], response_model=AppResponse[PaginatedResult[ActivityBase]]
 )
-async def get_all_activities(session: DbSession, tenant_id: TenantId) -> AppResponse[List[ActivityBase]]:
+async def get_all_activities(session: DbSession, tenant_id: TenantId) -> AppResponse[PaginatedResult[ActivityBase]]:
     """Get all created activities. Admin Only"""
     activity_service = ActivityService(session)
     result = await activity_service.get_all_activities(tenant_id=tenant_id)
@@ -65,7 +64,8 @@ async def assign_user_activity_item(
         result = await activity_service.assign_user_to_activity_item(
             CreateUserActivityWithTenantDto(
                 user_id=data.user_id, activity_id=data.activity_id, tenant_id=user.tenant_id, assigned_by_id=user.id
-            )
+            ),
+            tenant_id=user.tenant_id,
         )
         return AppResponse(data=result)
     except IntegrityException:

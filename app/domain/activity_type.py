@@ -4,11 +4,11 @@ from uuid import UUID
 from pydantic import Field
 from sqlalchemy.orm import selectinload
 
-from app.core.database.mixin import BaseModelDatabaseMixin
+from app.domain.base import BaseDomain
 from app.models import ActivityType
 
 
-class ActivityTypeBase(BaseModelDatabaseMixin[ActivityType]):
+class ActivityTypeBase(BaseDomain[ActivityType]):
     model: ClassVar[ActivityType] = ActivityType
 
     @classmethod

@@ -5,11 +5,12 @@ from uuid import UUID
 from pydantic import Field
 
 from app.core.database.mixin import BaseModelDatabaseMixin
+from app.domain.base import BaseDomain
 from app.domain.worklog import WorklogBase
 from app.models import ActivityTask
 
 
-class ActivityTaskBase(BaseModelDatabaseMixin[ActivityTask]):
+class ActivityTaskBase(BaseDomain[ActivityTask]):
     model: ClassVar[ActivityTask] = ActivityTask
 
     id: Optional[UUID] = Field(default=None)
