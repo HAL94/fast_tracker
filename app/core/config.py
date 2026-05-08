@@ -5,6 +5,13 @@ class AppConfigSettings(BaseSettings):
     ENV: str = "prod"
     APP_PORT: int = 8000
     HOST: str = "localhost"
+    ORIGINS: str
+
+    @property
+    def origins(self) -> list[str]:
+        if self.ORIGINS != "":
+            return self.ORIGINS.split(",")
+        return []
 
 
 class PostgresSettings(BaseSettings):
