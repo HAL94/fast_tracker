@@ -45,8 +45,6 @@ class FastApp(FastAPI):
         self.include_router(api_router)
 
     def _setup_exception_handlers(self) -> None:
-        tb_str = traceback.format_exc()
-
         def exception_handler(exc: Exception):
             if isinstance(exc, AppException):
                 content = exc.dict()
@@ -62,6 +60,7 @@ class FastApp(FastAPI):
 
         @self.exception_handler(Exception)
         async def global_handler(request: Request, exc: Exception):
+            tb_str = traceback.format_exc()
             logger.error(
                 f"Method: {request.method}. Request Failed: URL: {request.url}. Error: {str(exc)}. Traceback:\n{tb_str}"
             )
@@ -69,6 +68,7 @@ class FastApp(FastAPI):
 
         @self.exception_handler(HTTPException)
         async def http_handler(request: Request, exc: HTTPException):
+            tb_str = traceback.format_exc()
             logger.error(
                 f"Method: {request.method}. Request Failed: URL: {request.url}. Error: {str(exc)}. Traceback:\n{tb_str}"
             )
