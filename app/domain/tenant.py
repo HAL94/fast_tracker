@@ -3,11 +3,11 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.core.database.mixin import BaseModelDatabaseMixin
+from app.domain.base import BaseDomain
 from app.models import Tenant
 
 
-class TenantBase(BaseModelDatabaseMixin):
+class TenantBase(BaseDomain[Tenant]):
     model: ClassVar[Tenant] = Tenant
 
     id: Optional[UUID] = Field(default=None)

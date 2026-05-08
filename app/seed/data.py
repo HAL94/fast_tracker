@@ -3,6 +3,8 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from app.constants.roles import UserRole
 from app.core.database import session_manager
 from app.core.security.jwt import hash_password
@@ -11,6 +13,10 @@ from app.domain.activity_task import ActivityTaskBase
 from app.domain.activity_type import ActivityTypeBase
 from app.domain.tenant import TenantBase
 from app.domain.user import UserBase
+from app.repositories.activity_repository import ActivityRepository
+from app.repositories.task_repository import ActivityTaskRepository
+from app.repositories.tenant_repository import TenantRepository
+from app.repositories.user_repository import UserRepository
 
 
 async def seed_tenants() -> List[TenantBase]:
@@ -21,7 +27,8 @@ async def seed_tenants() -> List[TenantBase]:
         TenantBase(id=astek_tenant_id, organization_name="Astek"),
     ]
     async with session_manager.session() as session:
-        return await TenantBase.upsert_many(session, data)
+        repo = TenantRepository(session)
+        return await repo.upsert(data, commit=True)
 
 
 async def seed_admin_user(tenants: List[TenantBase]) -> List[UserBase]:
@@ -38,7 +45,8 @@ async def seed_admin_user(tenants: List[TenantBase]) -> List[UserBase]:
         for tenant in tenants
     ]
     async with session_manager.session() as session:
-        return await UserBase.upsert_many(session, tenant_admins, ["email"])
+        repo = UserRepository(session)
+        return await repo.upsert(tenant_admins, ["email"], commit=True)
 
 
 async def seed_employee_users(tenants: List[TenantBase]) -> List[UserBase]:
@@ -66,7 +74,8 @@ async def seed_employee_users(tenants: List[TenantBase]) -> List[UserBase]:
     index_elements = ["email"]
 
     async with session_manager.session() as session:
-        return await UserBase.upsert_many(session, data, index_elements)
+        repo = UserRepository(session)
+        return await repo.upsert(data, index_elements, commit=True)
 
 
 async def seed_activity_types() -> List[ActivityTypeBase]:
@@ -78,7 +87,19 @@ async def seed_activity_types() -> List[ActivityTypeBase]:
     data = [project_activities, non_project_activities, leave]
 
     async with session_manager.session() as session:
-        return await ActivityTypeBase.upsert_many(session, data)
+        ActivityType = ActivityTypeBase.model
+
+        stmt = pg_insert(ActivityType)
+        data_json = [item.model_dump(by_alias=False, exclude_none=True, exclude_unset=True) for item in data]
+
+        stmt = stmt.on_conflict_do_update(index_elements=["id"], set_={"title": getattr(stmt.excluded, "title")})
+        stmt = stmt.returning(ActivityType)
+
+        result = await session.scalars(stmt, data_json, execution_options={"populate_existing": True})
+
+        await session.commit()
+
+        return [ActivityTypeBase.model_validate(item, from_attributes=True) for item in result]
 
 
 async def seed_activities(activity_types: List[ActivityTypeBase], tenants: List[TenantBase]) -> List[ActivityBase]:
@@ -102,7 +123,8 @@ async def seed_activities(activity_types: List[ActivityTypeBase], tenants: List[
     ]
 
     async with session_manager.session() as session:
-        created_project_activities = await ActivityBase.upsert_many(session, project_activities)
+        repo = ActivityRepository(session)
+        created_project_activities = await repo.upsert(project_activities, commit=True)
 
     return created_project_activities
 
@@ -134,10 +156,23 @@ async def seed_emplyee_activities(
                 )
     index_elements = ["user_id", "activity_id", "tenant_id"]
     async with session_manager.session() as session:
-        return await ActivityUserBase.upsert_many(session, data, index_elements)
+        ActivityUser = ActivityUserBase.model
+        stmt = pg_insert(ActivityUser)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=index_elements,
+            set_={
+                col.key: getattr(stmt.excluded, col.key)
+                for col in ActivityUser.columns()
+                if col.key not in index_elements
+            },
+        )
+        stmt = stmt.returning(ActivityUser)
+        data_json = [item.model_dump(exclude_unset=True, by_alias=False, exclude_none=True) for item in data]
+        result = await session.scalars(stmt, data_json)
+        return [ActivityUserBase.model_validate(item, from_attributes=True) for item in result.all()]
 
 
-async def seed_employee_tasks(activities: List[ActivityBase], employees: List[UserBase]):
+async def seed_employee_tasks(activities: List[ActivityBase], employees: List[UserBase]) -> list[ActivityTaskBase]:
     data = []
     for activity in activities:
         for employee in employees:
@@ -154,7 +189,8 @@ async def seed_employee_tasks(activities: List[ActivityBase], employees: List[Us
 
     async with session_manager.session() as session:
         index_elements = ["activity_id", "title", "user_id"]
-        await ActivityTaskBase.upsert_many(session, data, index_elements)
+        repo = ActivityTaskRepository(session)
+        return await repo.upsert(data, index_elements, commit=True)
 
 
 async def seed_data():
