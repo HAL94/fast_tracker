@@ -169,6 +169,7 @@ async def seed_emplyee_activities(
         stmt = stmt.returning(ActivityUser)
         data_json = [item.model_dump(exclude_unset=True, by_alias=False, exclude_none=True) for item in data]
         result = await session.scalars(stmt, data_json)
+        await session.commit()
         return [ActivityUserBase.model_validate(item, from_attributes=True) for item in result.all()]
 
 
