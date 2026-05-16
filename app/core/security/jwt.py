@@ -54,7 +54,7 @@ class JwtManager:
             value=cls.signer.dumps(value),
             expires=cls.get_expiry(TokenType.AccessToken),
             httponly=True,
-            samesite="none",
+            samesite="none" if settings.ENV == "prod" else "lax",
             secure=settings.ENV == "prod",
         ).model_dump()
 
@@ -65,7 +65,7 @@ class JwtManager:
             value=cls.signer.dumps(value),
             expires=cls.get_expiry(TokenType.RefreshToken),
             httponly=True,
-            samesite="none",
+            samesite="none" if settings.ENV == "prod" else "lax",
             secure=settings.ENV == "prod",
         ).model_dump()
 

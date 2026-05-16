@@ -8,7 +8,7 @@ from app.dependencies.auth import CurrentUser, ValidateRole
 from app.dependencies.db_session import DbSession
 from app.domain.worklog import WorklogBase
 from app.dto.journal import GetJournalDto, JournalActivity, TaskBatchDto
-from app.services.journal import JournalService
+from app.services.journal.service import JournalService
 
 journal_router = APIRouter(prefix="/journal", tags=["Journal"])
 

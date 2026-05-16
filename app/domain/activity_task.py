@@ -4,7 +4,6 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.core.database.mixin import BaseModelDatabaseMixin
 from app.domain.base import BaseDomain
 from app.domain.worklog import WorklogBase
 from app.models import ActivityTask

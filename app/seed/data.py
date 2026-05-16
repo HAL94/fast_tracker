@@ -11,7 +11,7 @@ from app.core.security.jwt import hash_password
 from app.domain.activity import ActivityBase, ActivityUserBase
 from app.domain.activity_task import ActivityTaskBase
 from app.domain.activity_type import ActivityTypeBase
-from app.domain.tenant import TenantBase
+from app.domain.tenant import TenantBase, TenantSettings
 from app.domain.user import UserBase
 from app.repositories.activity_repository import ActivityRepository
 from app.repositories.task_repository import ActivityTaskRepository
@@ -22,13 +22,32 @@ from app.repositories.user_repository import UserRepository
 async def seed_tenants() -> List[TenantBase]:
     scai_tenant_id = uuid.UUID("8d17597b-55c4-45fc-bf47-2081fbad971a")
     astek_tenant_id = uuid.UUID("2e5b17e0-1621-4853-a98a-f42867b05a38")
+    scai_settings = TenantSettings(
+        daily_limit_hours=8, ramadan_limit_hours=6, is_ramadan_mode=False, weekend_days=[4, 5]
+    )
+    astek_settings = TenantSettings(
+        daily_limit_hours=8, ramadan_limit_hours=7, is_ramadan_mode=True, weekend_days=[5, 6]
+    )
     data = [
-        TenantBase(id=scai_tenant_id, organization_name="SCAI"),
-        TenantBase(id=astek_tenant_id, organization_name="Astek"),
+        TenantBase(
+            id=scai_tenant_id,
+            organization_name="SCAI",
+        ),
+        TenantBase(
+            id=astek_tenant_id,
+            organization_name="Astek",
+        ),
     ]
     async with session_manager.session() as session:
         repo = TenantRepository(session)
-        return await repo.upsert(data, commit=True)
+        result = await repo.upsert(data)
+
+        await repo.set_config(scai_settings, scai_tenant_id)
+        await repo.set_config(astek_settings, astek_tenant_id)
+
+        await session.commit()
+
+        return result
 
 
 async def seed_admin_user(tenants: List[TenantBase]) -> List[UserBase]:

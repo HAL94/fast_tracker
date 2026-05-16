@@ -16,7 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, WriteOnlyMapped, mapped_column, relationship
 
 from app.constants.roles import UserRole
@@ -36,6 +36,18 @@ class Tenant(Base):
     worklogs: WriteOnlyMapped["Worklog"] = relationship(back_populates="tenant")
     user_activities: WriteOnlyMapped["ActivityUser"] = relationship(back_populates="tenant")
     sessions: WriteOnlyMapped["Session"] = relationship(back_populates="tenant")
+
+    tenant_config: Mapped["TenantConfig"] = relationship(back_populates="tenant", uselist=False, lazy="joined")
+
+
+class TenantConfig(Base):
+    __tablename__ = "tenant_configs"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), unique=True)
+
+    settings: Mapped[dict] = mapped_column(JSONB, server_default="{}", nullable=False)
+    tenant: Mapped[Tenant] = relationship(back_populates="tenant_config")
 
 
 class User(Base):
